@@ -10,7 +10,7 @@ import json
 # ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 
-# Note: file pattern you supplied uses a hyphen
+# NeSI-style slurm output filenames: slurm-<jobid>_<taskid>.out
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
 
 OPT_CYCLE_REGEX = re.compile(r"GEOMETRY OPTIMIZATION CYCLE", re.IGNORECASE)
@@ -79,27 +79,6 @@ def run_sacct(jobid, taskid):
     return json.loads(result.stdout)
 
 
-def parse_memory(value):
-    """
-    Convert memory strings like '1024K', '512M', '64G' to MB.
-    """
-    if not value:
-        return None
-
-    value = value.strip().upper()
-    number = float(value[:-1])
-    unit = value[-1]
-
-    if unit == "K":
-        return number / 1024
-    elif unit == "M":
-        return number
-    elif unit == "G":
-        return number * 1024
-    else:
-        return None
-
-
 def parse_sacct_data(data):
     """
     Extract actual scheduler-recorded metrics:
@@ -108,32 +87,52 @@ def parse_sacct_data(data):
       - maximum RSS (MB)
     """
 
-    def ex_tres(objs, name, default=None, field='count'):
-        tres = {m['name' if m['type']=='gres' else 'type']: m[field] for m in objs}
-        return tres.get(name, default)
+    # Helper to extract TRES values
+    def extract_tres(objs, name, default=0):
+        for obj in objs:
+            if obj.get("type") == name:
+                return obj.get("count", default)
+        return default
 
     jobs = data.get("jobs", [])
 
     if len(jobs) == 0:
-        raise Exception('Error: No data for ')
-    elif len(jobs) >= 2:
-        raise Exception('Error: More than 1 job for ')
+        raise RuntimeError("sacct returned no job data")
+    if len(jobs) > 1:
+        raise RuntimeError("sacct returned multiple jobs unexpectedly")
 
     job = jobs[0]
 
-    walltime_sec = job['time']['elapsed']
+    # Elapsed time in seconds (ground truth runtime)
+    elapsed_sec = job.get("elapsed_raw")
 
-    tot_cpu_msec = 0
-    mem_kb = -1
+    total_cpu_msec = 0
+    max_mem_kb = 0
 
     for step in job.get("steps", []):
-        used = step['tres']['requested']
-        tot_cpu_msec += ex_tres(used['total'], 'cpu', 0)
-        lmem_kb = ex_tres(used['total'], 'mem', 0) / 1024
-        if mem_kb < lmem_kb:
-            mem_kb = lmem_kb
+        step_name = step.get("step_name", "")
+        state = step.get("state", "")
 
-    return walltime_sec, tot_cpu_msec / 1000, mem_kb / 1024
+        if step_name in ("batch", "extern"):
+            continue
+        if not state.startswith("COMPLETED"):
+            continue
+
+        tres_used = step.get("tres", {}).get("consumed", [])
+
+        # CPU time in milliseconds
+        total_cpu_msec += extract_tres(tres_used, "cpu", 0)
+
+        # Memory usage in KB (take max across steps)
+        mem_kb = extract_tres(tres_used, "mem", 0)
+        if mem_kb > max_mem_kb:
+            max_mem_kb = mem_kb
+
+    cpu_time_sec = total_cpu_msec / 1000.0
+    max_rss_mb = max_mem_kb / 1024.0
+
+    return elapsed_sec, cpu_time_sec, max_rss_mb
+
 
 # ------------------------------------------------------------
 # Main report logic
@@ -153,7 +152,6 @@ def main():
 
     results = []
 
-    # Scan for SLURM output files
     for filename in sorted(os.listdir(bench_dir)):
         match = SLURM_FILE_REGEX.match(filename)
         if not match:
@@ -165,19 +163,17 @@ def main():
         print(f"🔍 Processing OPT benchmark: cores={cores}, jobid={jobid}")
 
         orca_out_path = os.path.join(
-            bench_dir,
-            f"{cores}cores",
-            "orca.out",
+            bench_dir, f"{cores}cores", "orca.out"
         )
 
         if not os.path.isfile(orca_out_path):
             print(f"⚠ Missing ORCA output: {orca_out_path}")
             continue
 
-        # ORCA-parsed values
+        # ORCA-reported values
         wall_time, orca_cpu_time, opt_steps = parse_orca_output(orca_out_path)
 
-        # Scheduler-parsed values (ground truth)
+        # SLURM ground-truth values
         try:
             sacct_json = run_sacct(jobid, cores)
             elapsed_s, cpu_used_s, max_rss_mb = parse_sacct_data(sacct_json)
