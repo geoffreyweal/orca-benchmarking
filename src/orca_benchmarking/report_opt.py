@@ -107,13 +107,16 @@ def parse_sacct_data(data):
       - total CPU time (seconds)
       - maximum RSS (MB)
     """
+
     elapsed = None
     cpu_time = None
     max_rss = None
 
     for job in data.get("jobs", []):
+
+        walltime = job['time']['elapsed']
+
         for step in job.get("steps", []):
-            step_name = step.get("step_name", "")
 
             import pdb; pdb.set_trace()
 
