@@ -6,7 +6,6 @@ import sys
 import json
 import statistics
 import argparse
-
 from tqdm import tqdm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -35,8 +34,6 @@ def parse_orca_output(path):
 
     with open(path, "r") as f:
         for line in f:
-
-            # Blank line always terminates DIIS / SOSCF tables
             if line.strip() == "":
                 in_diis = False
                 in_soscf = False
@@ -84,7 +81,7 @@ def parse_orca_output(path):
     )
 
 # ------------------------------------------------------------
-# sacct helpers (UNCHANGED semantics)
+# sacct helpers
 # ------------------------------------------------------------
 def run_sacct(jobid, taskid):
     result = subprocess.run(
@@ -103,8 +100,8 @@ def parse_sacct_data(data):
         return default
 
     job = data["jobs"][0]
-
     elapsed = job["time"]["elapsed"]
+
     cpu_msec = 0
     max_mem_b = -1
 
@@ -141,6 +138,7 @@ def main():
     results = []
 
     print("\n📊 Collecting benchmark results…")
+
     for fname in tqdm(
         sorted(os.listdir(bench_dir)),
         desc="Processing benchmarks",
@@ -158,7 +156,6 @@ def main():
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
 
-        # CPU efficiency (exact formula retained)
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -178,7 +175,7 @@ def main():
     results.sort(key=lambda r: r["cores"])
 
     # --------------------------------------------------------
-    # Plotly figure (HTML only)
+    # Plotly figure
     # --------------------------------------------------------
     print("\n📈 Generating Plotly figure…")
 
@@ -188,6 +185,7 @@ def main():
         rows=2,
         cols=2,
         shared_xaxes=True,
+        vertical_spacing=0.06,
         subplot_titles=[
             "CPU efficiency",
             "Mean DIIS iteration time",
@@ -242,39 +240,29 @@ def main():
         col=2,
     )
 
-    # X-axis labels and ticks on ALL subplots
+    # Axis labels
     fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=1)
     fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=2)
     fig.update_xaxes(title_text="Number of cores", row=2, col=1)
     fig.update_xaxes(title_text="Number of cores", row=2, col=2)
 
-    # Y-axis labels and ranges
-    fig.update_yaxes(
-        title_text="CPU efficiency (%)",
-        range=[0, 100],
-        row=1,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="Mean DIIS iteration time (s)",
-        row=1,
-        col=2,
-    )
-    fig.update_yaxes(
-        title_text="Mean SOSCF iteration time (s)",
-        row=2,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="Mean geometry iteration time (s)",
-        row=2,
-        col=2,
-    )
+    fig.update_yaxes(title_text="CPU efficiency (%)", range=[0, 100], row=1, col=1)
+    fig.update_yaxes(title_text="Mean DIIS iteration time (s)", row=1, col=2)
+    fig.update_yaxes(title_text="Mean SOSCF iteration time (s)", row=2, col=1)
+    fig.update_yaxes(title_text="Mean geometry iteration time (s)", row=2, col=2)
+
+    # Enforce square subplots
+    fig.update_yaxes(scaleanchor="x", row=1, col=1)
+    fig.update_yaxes(scaleanchor="x2", row=1, col=2)
+    fig.update_yaxes(scaleanchor="x3", row=2, col=1)
+    fig.update_yaxes(scaleanchor="x4", row=2, col=2)
 
     fig.update_layout(
         title="ORCA optimisation benchmarking",
         hovermode="x unified",
         template="none",
+        autosize=True,
+        margin=dict(l=60, r=40, t=80, b=60),
     )
 
     fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
