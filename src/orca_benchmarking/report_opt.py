@@ -159,7 +159,7 @@ def main():
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
 
-        # ✅ CPU efficiency formula EXACTLY as requested
+        # CPU efficiency (UNCHANGED formula)
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -241,10 +241,13 @@ def main():
         col=2,
     )
 
-    # Axis labels and ranges
+    # X-axis labels and ticks on ALL subplots
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=1)
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=2)
     fig.update_xaxes(title_text="Number of cores", row=2, col=1)
     fig.update_xaxes(title_text="Number of cores", row=2, col=2)
 
+    # Y-axis labels and ranges
     fig.update_yaxes(
         title_text="CPU efficiency (%)",
         range=[0, 100],
