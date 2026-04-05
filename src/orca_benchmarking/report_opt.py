@@ -107,7 +107,7 @@ def parse_sacct_data(data):
     elapsed_sec = job['time']['elapsed']
 
     total_cpu_msec = 0
-    max_mem_b = -1
+    max_mem_byte = -1
 
     for step in job.get("steps", []):
 
@@ -117,12 +117,12 @@ def parse_sacct_data(data):
         total_cpu_msec += extract_tres(tres_used['total'], "cpu", 0)
 
         # Memory usage in KB (take max across steps)
-        mem_b = extract_tres(tres_used['total'], "mem", 0)
-        if mem_b > max_mem_b:
-            max_mem_b = mem_b
+        mem_byte = extract_tres(tres_used['total'], "mem", 0)
+        if mem_byte > max_mem_byte:
+            max_mem_byte = mem_byte
 
     cpu_time_sec = total_cpu_msec / 1000.0
-    max_rss_mb = max_mem_kb / 1024.0 / 1024.0
+    max_rss_mb = max_mem_byte / 1024.0 / 1024.0
 
     return elapsed_sec, cpu_time_sec, max_rss_mb
 
