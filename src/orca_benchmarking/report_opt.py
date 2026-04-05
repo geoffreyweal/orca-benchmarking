@@ -4,62 +4,95 @@ import subprocess
 import csv
 import sys
 import json
+import statistics
 
 # ------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 
-# NeSI-style slurm output filenames: slurm-<jobid>_<taskid>.out
+# NeSI-style SLURM output files
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
-
-OPT_CYCLE_REGEX = re.compile(r"GEOMETRY OPTIMIZATION CYCLE", re.IGNORECASE)
-
 
 # ------------------------------------------------------------
 # ORCA output parsing
 # ------------------------------------------------------------
 def parse_orca_output(path):
     """
-    Extract ORCA-reported wall time, ORCA CPU time,
-    and number of geometry optimisation steps.
+    Extract timing statistics from ORCA output:
+      - DIIS iteration times (mean, std)
+      - SOSCF iteration times (mean, std)
+      - Geometry iteration times (mean, std)
+
+    Returns:
+      diis_mean, diis_std,
+      soscf_mean, soscf_std,
+      geom_iter_mean, geom_iter_std
     """
-    wall_time = None
-    cpu_time = None
-    opt_steps = 0
+
+    diis_times = []
+    soscf_times = []
+    geom_iter_times = []
+
+    in_diis = False
+    in_soscf = False
+
+    iter_line_re = re.compile(r"^\s*\d+.*\s+([0-9]+(?:\.[0-9]+)?)\s*$")
+    geom_iter_re = re.compile(
+        r"Time for complete geometry iter\s*:\s*([0-9]+(?:\.[0-9]+)?)"
+    )
 
     with open(path, "r") as f:
         for line in f:
-            if "TOTAL RUN TIME" in line:
-                wall_time = line.split(":")[-1].strip()
-            elif "TOTAL CPU TIME" in line:
-                cpu_time = line.split(":")[-1].strip()
-            elif OPT_CYCLE_REGEX.search(line):
-                opt_steps += 1
 
-    return wall_time, cpu_time, opt_steps
+            # Detect DIIS / SOSCF sections
+            if "D-I-I-S" in line:
+                in_diis = True
+                in_soscf = False
+                continue
 
+            if "S-O-S-C-F" in line:
+                in_diis = False
+                in_soscf = True
+                continue
 
-# ------------------------------------------------------------
-# Time utilities
-# ------------------------------------------------------------
-def hms_to_seconds(hms):
-    """
-    Convert HH:MM:SS or H:MM:SS to seconds.
-    """
-    if hms is None:
-        return None
+            # Geometry iteration timing
+            g = geom_iter_re.search(line)
+            if g:
+                geom_iter_times.append(float(g.group(1)))
+                continue
 
-    parts = [float(p) for p in hms.split(":")]
-    if len(parts) == 3:
-        h, m, s = parts
-    elif len(parts) == 2:
-        h = 0
-        m, s = parts
-    else:
-        return None
+            # Skip separator lines
+            if line.strip().startswith("---"):
+                continue
 
-    return h * 3600 + m * 60 + s
+            # Iteration timing rows
+            m = iter_line_re.match(line)
+            if not m:
+                continue
+
+            time_sec = float(m.group(1))
+            if in_diis:
+                diis_times.append(time_sec)
+            elif in_soscf:
+                soscf_times.append(time_sec)
+
+    def mean_std(values):
+        if len(values) == 0:
+            return None, None
+        if len(values) == 1:
+            return values[0], 0.0
+        return statistics.mean(values), statistics.stdev(values)
+
+    diis_mean, diis_std = mean_std(diis_times)
+    soscf_mean, soscf_std = mean_std(soscf_times)
+    geom_iter_mean, geom_iter_std = mean_std(geom_iter_times)
+
+    return (
+        diis_mean, diis_std,
+        soscf_mean, soscf_std,
+        geom_iter_mean, geom_iter_std,
+    )
 
 
 # ------------------------------------------------------------
@@ -79,6 +112,9 @@ def run_sacct(jobid, taskid):
     return json.loads(result.stdout)
 
 
+# ------------------------------------------------------------
+# REQUIRED sacct parsing method (UNCHANGED LOGIC)
+# ------------------------------------------------------------
 def parse_sacct_data(data):
     """
     Extract actual scheduler-recorded metrics:
@@ -87,7 +123,6 @@ def parse_sacct_data(data):
       - maximum RSS (MB)
     """
 
-    # Helper to extract TRES values
     def extract_tres(objs, name, default=0):
         for obj in objs:
             if obj.get("type") == name:
@@ -103,34 +138,30 @@ def parse_sacct_data(data):
 
     job = jobs[0]
 
-    # Elapsed time in seconds (ground truth runtime)
-    elapsed_sec = job['time']['elapsed']
+    elapsed_sec = job["time"]["elapsed"]
 
     total_cpu_msec = 0
-    max_mem_byte = -1
+    max_mem_b = -1
 
     for step in job.get("steps", []):
+        tres_used = step["tres"]["requested"]
 
-        tres_used = step['tres']['requested']
+        total_cpu_msec += extract_tres(tres_used["total"], "cpu", 0)
 
-        # CPU time in milliseconds
-        total_cpu_msec += extract_tres(tres_used['total'], "cpu", 0)
-
-        # Memory usage in KB (take max across steps)
-        mem_byte = extract_tres(tres_used['total'], "mem", 0)
-        if mem_byte > max_mem_byte:
-            max_mem_byte = mem_byte
+        mem_b = extract_tres(tres_used["total"], "mem", 0)
+        if mem_b > max_mem_b:
+            max_mem_b = mem_b
 
     cpu_time_sec = total_cpu_msec / 1000.0
-    max_rss_mb = max_mem_byte / 1024.0 / 1024.0
+    max_rss_mb = max_mem_b / 1024.0 / 1024.0
 
     return elapsed_sec, cpu_time_sec, max_rss_mb
+
 
 # ------------------------------------------------------------
 # Main report logic
 # ------------------------------------------------------------
 def main():
-    # Ensure we are running from the directory ABOVE orca_benchmarking
     cwd = os.getcwd()
     bench_dir = os.path.join(cwd, BENCH_DIR_NAME)
 
@@ -154,18 +185,20 @@ def main():
 
         print(f"🔍 Processing OPT benchmark: cores={cores}, jobid={jobid}")
 
-        orca_out_path = os.path.join(
+        orca_out = os.path.join(
             bench_dir, f"{cores}cores", "orca.out"
         )
 
-        if not os.path.isfile(orca_out_path):
-            print(f"⚠ Missing ORCA output: {orca_out_path}")
+        if not os.path.isfile(orca_out):
+            print(f"⚠ Missing ORCA output: {orca_out}")
             continue
 
-        # ORCA-reported values
-        wall_time, orca_cpu_time, opt_steps = parse_orca_output(orca_out_path)
+        (
+            diis_mean, diis_std,
+            soscf_mean, soscf_std,
+            geom_iter_mean, geom_iter_std,
+        ) = parse_orca_output(orca_out)
 
-        # SLURM ground-truth values
         try:
             sacct_json = run_sacct(jobid, cores)
             elapsed_s, cpu_used_s, max_rss_mb = parse_sacct_data(sacct_json)
@@ -173,23 +206,17 @@ def main():
             print(f"⚠ sacct failed for {jobid}_{cores}: {exc}")
             elapsed_s = cpu_used_s = max_rss_mb = None
 
-        time_per_step = (
-            elapsed_s / opt_steps
-            if elapsed_s is not None and opt_steps > 0
-            else None
-        )
-
-        import pdb; pdb.set_trace()
-
         row = {
             "cores": cores,
-            "opt_steps": opt_steps,
             "elapsed_time_s": elapsed_s,
             "cpu_time_s": cpu_used_s,
             "max_rss_mb": max_rss_mb,
-            "orca_wall_time": wall_time,
-            "orca_cpu_time": orca_cpu_time,
-            "time_per_opt_step_s": time_per_step,
+            "diis_mean_s": diis_mean,
+            "diis_std_s": diis_std,
+            "soscf_mean_s": soscf_mean,
+            "soscf_std_s": soscf_std,
+            "geom_iter_mean_s": geom_iter_mean,
+            "geom_iter_std_s": geom_iter_std,
         }
 
         results.append(row)
@@ -213,3 +240,4 @@ def main():
 # ------------------------------------------------------------
 def cli():
     main()
+    
