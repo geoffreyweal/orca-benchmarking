@@ -76,6 +76,8 @@ def parse_orca_output(path):
                 diis_times.append(time_sec)
             elif in_soscf:
                 soscf_times.append(time_sec)
+                if time_sec > 100.0:
+                    import pdb; pdb.set_trace()
 
     def mean_std(values):
         if len(values) == 0:
