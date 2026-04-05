@@ -129,11 +129,9 @@ def parse_sacct_data(data):
     for step in job.get("steps", []):
         used = step['tres']['requested']
         tot_cpu_msec += ex_tres(used['total'], 'cpu', 0)
-        lmem = ex_tres(used['total'], 'mem', 0) / 1024
-        if mem < lmem:
-            mem = lmem
-
-    import pdb; pdb.set_trace()
+        lmem_kb = ex_tres(used['total'], 'mem', 0) / 1024
+        if mem_kb < lmem_kb:
+            mem_kb = lmem_kb
 
     return walltime_sec, tot_cpu_msec / 1000, mem_kb / 1024
 
