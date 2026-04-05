@@ -24,6 +24,7 @@ def parse_orca_output(path):
     diis_times = []
     soscf_times = []
     geom_iter_times = []
+
     in_diis = False
     in_soscf = False
 
@@ -120,13 +121,20 @@ def main():
     parser.add_argument("--csv", action="store_true", help="Write CSV output")
     args = parser.parse_args()
 
+    print("🔍 ORCA optimisation benchmarking report")
+    print("📁 Locating benchmark directory...")
+
     bench_dir = os.path.join(os.getcwd(), BENCH_DIR_NAME)
     if not os.path.isdir(bench_dir):
         sys.exit("❌ Run from the directory ABOVE orca_benchmarking/")
 
-    results = []
+    print(f"✅ Benchmark directory found: {bench_dir}")
+    print("\n📊 Scanning benchmark results...")
 
-    for fname in sorted(os.listdir(bench_dir)):
+    results = []
+    files = sorted(os.listdir(bench_dir))
+
+    for fname in tqdm(files, desc="Processing SLURM outputs", unit="job"):
         m = SLURM_FILE_REGEX.match(fname)
         if not m:
             continue
@@ -138,6 +146,7 @@ def main():
 
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
+
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -147,6 +156,12 @@ def main():
             "soscf": soscf_m,
             "geom": geom_m,
         })
+
+    if not results:
+        sys.exit("\n❌ No benchmark data found.")
+
+    print("✅ Benchmark parsing complete.")
+    print("📈 Generating Plotly figure...")
 
     results.sort(key=lambda r: r["cores"])
     cores = [r["cores"] for r in results]
@@ -204,9 +219,8 @@ def main():
         row=2, col=2
     )
 
-    # --------------------------------------------------------
-    # Axis styling and limits (ALL START AT 0)
-    # --------------------------------------------------------
+    print("🎨 Styling axes and layout...")
+
     fig.update_xaxes(
         title_text="Number of cores",
         range=[0, max(cores)],
@@ -232,26 +246,10 @@ def main():
         rangemode="tozero",
     )
 
-    fig.update_yaxes(
-        title_text="CPU efficiency (%)",
-        range=[0, 100],
-        row=1, col=1,
-    )
-
-    fig.update_yaxes(
-        title_text="Mean DIIS iteration time (s)",
-        row=1, col=2,
-    )
-
-    fig.update_yaxes(
-        title_text="Mean SOSCF iteration time (s)",
-        row=2, col=1,
-    )
-
-    fig.update_yaxes(
-        title_text="Mean geometry iteration time (s)",
-        row=2, col=2,
-    )
+    fig.update_yaxes(title_text="CPU efficiency (%)", range=[0, 100], row=1, col=1)
+    fig.update_yaxes(title_text="Mean DIIS iteration time (s)", row=1, col=2)
+    fig.update_yaxes(title_text="Mean SOSCF iteration time (s)", row=2, col=1)
+    fig.update_yaxes(title_text="Mean geometry iteration time (s)", row=2, col=2)
 
     fig.update_layout(
         template="none",
@@ -260,9 +258,8 @@ def main():
         margin=dict(l=80, r=40, t=90, b=80),
     )
 
-    # --------------------------------------------------------
-    # Responsive square HTML output
-    # --------------------------------------------------------
+    print("🖥️ Writing responsive square HTML output...")
+
     post_script = """
     function resizeSquare() {
         var s = Math.min(window.innerWidth, window.innerHeight);
@@ -283,7 +280,17 @@ def main():
     with open("orca_benchmark_results_opt.html", "w") as f:
         f.write(html)
 
-    print("✅ Square, responsive plot written to orca_benchmark_results_opt.html")
+    print("✅ Plot written to orca_benchmark_results_opt.html")
+
+    if args.csv:
+        print("📄 Writing CSV output...")
+        with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=results[0].keys())
+            w.writeheader()
+            w.writerows(results)
+        print("✅ CSV written to orca_benchmark_results_opt.csv")
+
+    print("🎉 Done.")
 
 if __name__ == "__main__":
     main()
