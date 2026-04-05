@@ -3,12 +3,14 @@ import re
 import subprocess
 import csv
 import sys
+import json
 
 # ------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 
+# Note: file pattern you supplied uses a hyphen
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
 
 OPT_CYCLE_REGEX = re.compile(r"GEOMETRY OPTIMIZATION CYCLE", re.IGNORECASE)
@@ -19,7 +21,8 @@ OPT_CYCLE_REGEX = re.compile(r"GEOMETRY OPTIMIZATION CYCLE", re.IGNORECASE)
 # ------------------------------------------------------------
 def parse_orca_output(path):
     """
-    Extract wall time, CPU time, and number of geometry optimisation steps.
+    Extract ORCA-reported wall time, ORCA CPU time,
+    and number of geometry optimisation steps.
     """
     wall_time = None
     cpu_time = None
@@ -60,41 +63,71 @@ def hms_to_seconds(hms):
 
 
 # ------------------------------------------------------------
-# nn_seff helpers
+# sacct helpers
 # ------------------------------------------------------------
-def run_nn_seff(jobid, taskid):
+def run_sacct(jobid, taskid):
     """
-    Run nn_seff for a specific SLURM array task.
+    Run sacct using JSON output for a specific SLURM array task.
     """
-    cmd = ["nn_seff", f"{jobid}_{taskid}"]
+    cmd = ["sacct", "--json", "-j", f"{jobid}_{taskid}"]
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         check=True,
     )
-    return result.stdout
+    return json.loads(result.stdout)
 
 
-def parse_nn_seff_output(text):
+def parse_memory(value):
     """
-    Parse efficiency metrics from nn_seff output.
+    Convert memory strings like '1024K', '512M', '64G' to MB.
     """
-    data = {}
+    if not value:
+        return None
 
-    patterns = {
-        "cpu_efficiency": r"CPU Efficiency:\s*([\d.]+)",
-        "mem_efficiency": r"Memory Efficiency:\s*([\d.]+)",
-        "cpu_util_percent": r"CPU Utilization:\s*([\d.]+)%",
-        "mem_util_percent": r"Memory Utilization:\s*([\d.]+)%",
-    }
+    value = value.strip().upper()
+    number = float(value[:-1])
+    unit = value[-1]
 
-    for key, regex in patterns.items():
-        match = re.search(regex, text)
-        if match:
-            data[key] = float(match.group(1))
+    if unit == "K":
+        return number / 1024
+    elif unit == "M":
+        return number
+    elif unit == "G":
+        return number * 1024
+    else:
+        return None
 
-    return data
+
+def parse_sacct_data(data):
+    """
+    Extract actual scheduler-recorded metrics:
+      - elapsed time (seconds)
+      - total CPU time (seconds)
+      - maximum RSS (MB)
+    """
+    elapsed = None
+    cpu_time = None
+    max_rss = None
+
+    for job in data.get("jobs", []):
+        for step in job.get("steps", []):
+            step_name = step.get("step_name", "")
+
+            # Skip noise
+            if step_name in ("batch", "extern"):
+                continue
+
+            state = step.get("state", "")
+            if not state.startswith("COMPLETED"):
+                continue
+
+            elapsed = step.get("elapsed_raw")
+            cpu_time = step.get("cpu_time_raw")
+            max_rss = parse_memory(step.get("max_rss"))
+
+    return elapsed, cpu_time, max_rss
 
 
 # ------------------------------------------------------------
@@ -136,32 +169,34 @@ def main():
             print(f"⚠ Missing ORCA output: {orca_out_path}")
             continue
 
-        wall_time, cpu_time, opt_steps = parse_orca_output(orca_out_path)
+        # ORCA-parsed values
+        wall_time, orca_cpu_time, opt_steps = parse_orca_output(orca_out_path)
 
-        wall_seconds = hms_to_seconds(wall_time)
-        time_per_step = (
-            wall_seconds / opt_steps
-            if wall_seconds is not None and opt_steps > 0
-            else None
-        )
-
-        # Run nn_seff for this array task
+        # Scheduler-parsed values (ground truth)
         try:
-            seff_text = run_nn_seff(jobid, cores)
-            seff_data = parse_nn_seff_output(seff_text)
+            sacct_json = run_sacct(jobid, cores)
+            elapsed_s, cpu_used_s, max_rss_mb = parse_sacct_data(sacct_json)
         except Exception as exc:
-            print(f"⚠ nn_seff failed for {jobid}_{cores}: {exc}")
-            seff_data = {}
+            print(f"⚠ sacct failed for {jobid}_{cores}: {exc}")
+            elapsed_s = cpu_used_s = max_rss_mb = None
 
         import pdb; pdb.set_trace()
+
+        time_per_step = (
+            elapsed_s / opt_steps
+            if elapsed_s is not None and opt_steps > 0
+            else None
+        )
 
         row = {
             "cores": cores,
             "opt_steps": opt_steps,
-            "wall_time": wall_time,
-            "cpu_time": cpu_time,
-            "time_per_step_s": time_per_step,
-            **seff_data,
+            "elapsed_time_s": elapsed_s,
+            "cpu_time_s": cpu_used_s,
+            "max_rss_mb": max_rss_mb,
+            "orca_wall_time": wall_time,
+            "orca_cpu_time": orca_cpu_time,
+            "time_per_opt_step_s": time_per_step,
         }
 
         results.append(row)
