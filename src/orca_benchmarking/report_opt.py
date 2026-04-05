@@ -88,6 +88,8 @@ def parse_orca_output(path):
     soscf_mean, soscf_std = mean_std(soscf_times)
     geom_iter_mean, geom_iter_std = mean_std(geom_iter_times)
 
+    import pdb; pdb.set_trace()
+
     return (
         diis_mean, diis_std,
         soscf_mean, soscf_std,
@@ -240,4 +242,3 @@ def main():
 # ------------------------------------------------------------
 def cli():
     main()
-    
