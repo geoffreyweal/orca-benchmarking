@@ -9,7 +9,7 @@ import sys
 # ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 
-SLURM_FILE_REGEX = re.compile(r"slurm_(\d+)_(\d+)\.out")
+SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
 
 OPT_CYCLE_REGEX = re.compile(r"GEOMETRY OPTIMIZATION CYCLE", re.IGNORECASE)
 
@@ -116,7 +116,7 @@ def main():
     results = []
 
     # Scan for SLURM output files
-    for filename in os.listdir(bench_dir):
+    for filename in sorted(os.listdir(bench_dir)):
         match = SLURM_FILE_REGEX.match(filename)
 
         import pdb; pdb.set_trace()
