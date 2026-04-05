@@ -6,6 +6,7 @@ import sys
 import json
 import statistics
 import argparse
+
 from tqdm import tqdm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -34,6 +35,8 @@ def parse_orca_output(path):
 
     with open(path, "r") as f:
         for line in f:
+
+            # Blank line always terminates DIIS / SOSCF tables
             if line.strip() == "":
                 in_diis = False
                 in_soscf = False
@@ -81,7 +84,7 @@ def parse_orca_output(path):
     )
 
 # ------------------------------------------------------------
-# sacct helpers
+# sacct helpers (UNCHANGED semantics)
 # ------------------------------------------------------------
 def run_sacct(jobid, taskid):
     result = subprocess.run(
@@ -100,6 +103,7 @@ def parse_sacct_data(data):
         return default
 
     job = data["jobs"][0]
+
     elapsed = job["time"]["elapsed"]
     cpu_msec = 0
     max_mem_b = -1
@@ -129,13 +133,19 @@ def main():
     print("🔍 ORCA optimisation benchmark report")
 
     bench_dir = os.path.join(os.getcwd(), BENCH_DIR_NAME)
+    print(f"📁 Benchmark directory: {bench_dir}")
+
     if not os.path.isdir(bench_dir):
         sys.exit("❌ Run from the directory ABOVE orca_benchmarking/")
 
     results = []
 
     print("\n📊 Collecting benchmark results…")
-    for fname in tqdm(sorted(os.listdir(bench_dir)), unit="job"):
+    for fname in tqdm(
+        sorted(os.listdir(bench_dir)),
+        desc="Processing benchmarks",
+        unit="job",
+    ):
         m = SLURM_FILE_REGEX.match(fname)
         if not m:
             continue
@@ -148,22 +158,32 @@ def main():
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
 
+        # CPU efficiency (exact formula retained)
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
             "cores": cores,
+            "elapsed_time_s": elapsed,
+            "cpu_time_s": cpu,
             "cpu_eff_percent": cpu_eff,
+            "max_rss_mb": rss,
             "diis_mean_s": diis_m,
             "soscf_mean_s": soscf_m,
             "geom_iter_mean_s": geom_m,
         })
 
+    if not results:
+        sys.exit("\n❌ No optimisation benchmark data found.\n")
+
     results.sort(key=lambda r: r["cores"])
-    cores = [r["cores"] for r in results]
 
     # --------------------------------------------------------
-    # Plotly figure
+    # Plotly figure (HTML only)
     # --------------------------------------------------------
+    print("\n📈 Generating Plotly figure…")
+
+    cores = [r["cores"] for r in results]
+
     fig = make_subplots(
         rows=2,
         cols=2,
@@ -176,80 +196,105 @@ def main():
         ],
     )
 
-    fig.add_trace(go.Scatter(
-        x=cores, y=[r["cpu_eff_percent"] for r in results],
-        mode="lines+markers",
-    ), row=1, col=1)
+    # ⭐ THIS IS THE KEY FIX FOR HOVER SYNCHRONISATION ⭐
+    fig.update_xaxes(matches="x")
 
-    fig.add_trace(go.Scatter(
-        x=cores, y=[r["diis_mean_s"] for r in results],
-        mode="lines+markers",
-    ), row=1, col=2)
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["cpu_eff_percent"] for r in results],
+            mode="lines+markers",
+            name="CPU efficiency",
+        ),
+        row=1,
+        col=1,
+    )
 
-    fig.add_trace(go.Scatter(
-        x=cores, y=[r["soscf_mean_s"] for r in results],
-        mode="lines+markers",
-    ), row=2, col=1)
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["diis_mean_s"] for r in results],
+            mode="lines+markers",
+            name="DIIS mean",
+        ),
+        row=1,
+        col=2,
+    )
 
-    fig.add_trace(go.Scatter(
-        x=cores, y=[r["geom_iter_mean_s"] for r in results],
-        mode="lines+markers",
-    ), row=2, col=2)
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["soscf_mean_s"] for r in results],
+            mode="lines+markers",
+            name="SOSCF mean",
+        ),
+        row=2,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["geom_iter_mean_s"] for r in results],
+            mode="lines+markers",
+            name="Geometry mean",
+        ),
+        row=2,
+        col=2,
+    )
+
+    # X-axis labels and ticks on ALL subplots
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=1)
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=2)
+    fig.update_xaxes(title_text="Number of cores", row=2, col=1)
+    fig.update_xaxes(title_text="Number of cores", row=2, col=2)
+
+    # Y-axis labels and ranges
+    fig.update_yaxes(
+        title_text="CPU efficiency (%)",
+        range=[0, 100],
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Mean DIIS iteration time (s)",
+        row=1,
+        col=2,
+    )
+    fig.update_yaxes(
+        title_text="Mean SOSCF iteration time (s)",
+        row=2,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Mean geometry iteration time (s)",
+        row=2,
+        col=2,
+    )
 
     fig.update_layout(
-        hovermode="x",
         title="ORCA optimisation benchmarking",
+        hovermode="x unified",
     )
 
+    fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
+    print("✅ Plot written to orca_benchmark_results_opt.html")
+
     # --------------------------------------------------------
-    # FULL hover synchronization via injected JavaScript
+    # Optional CSV
     # --------------------------------------------------------
-    html = fig.to_html(
-        full_html=True,
-        include_plotlyjs="cdn",
-        div_id="benchmark-plot",
-    )
+    if args.csv:
+        print("\n📄 Writing CSV output…")
+        with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=results[0].keys())
+            w.writeheader()
+            w.writerows(results)
+        print("✅ CSV written to orca_benchmark_results_opt.csv")
 
-    custom_js = """
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-  var plot = document.getElementById("benchmark-plot");
+    print("\n🎉 Done.")
 
-  plot.on("plotly_hover", function (eventData) {
-    if (!eventData || !eventData.points || !eventData.points.length) return;
-
-    var xVal = eventData.points[0].x;
-    var hoverPoints = [];
-
-    plot.data.forEach(function (trace, traceIndex) {
-      if (!trace.x) return;
-      var idx = trace.x.indexOf(xVal);
-      if (idx !== -1) {
-        hoverPoints.push({
-          curveNumber: traceIndex,
-          pointNumber: idx
-        });
-      }
-    });
-
-    Plotly.Fx.hover(plot, hoverPoints);
-  });
-
-  plot.on("plotly_unhover", function () {
-    Plotly.Fx.unhover(plot);
-  });
-});
-</script>
-"""
-
-    html = html.replace("</body>", custom_js + "\n</body>")
-
-    with open("orca_benchmark_results_opt_full_sync.html", "w") as f:
-        f.write(html)
-
-    print("✅ Full-hover-synchronised HTML written:")
-    print("   orca_benchmark_results_opt_full_sync.html")
-
+# ------------------------------------------------------------
+# CLI entry point
 # ------------------------------------------------------------
 def cli():
     main()
