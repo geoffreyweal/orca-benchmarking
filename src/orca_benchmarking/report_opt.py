@@ -208,6 +208,9 @@ def main():
     if not results:
         sys.exit("\n❌ No optimisation benchmark data found.\n")
 
+    # ✅ Ensure rows are ordered by core count
+    results.sort(key=lambda row: row["cores"])
+
     output_csv = "orca_benchmark_results_opt.csv"
     with open(output_csv, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=results[0].keys())
