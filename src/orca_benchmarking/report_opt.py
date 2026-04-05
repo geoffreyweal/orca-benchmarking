@@ -108,22 +108,25 @@ def parse_sacct_data(data):
       - maximum RSS (MB)
     """
 
-    elapsed = None
-    cpu_time = None
-    max_rss = None
+    def ex_tres(objs, name, default=None, field='count'):
+        tres = {m['name' if m['type']=='gres' else 'type']: m[field] for m in objs}
+        return tres.get(name, default)
 
     for job in data.get("jobs", []):
 
         walltime = job['time']['elapsed']
 
+        tot_cpu_msec = 0
+        mem = -1
+
         for step in job.get("steps", []):
+            used = step['tres']['requested']
+            tot_cpu_msec += ex_tres(used['total'], 'cpu', 0)
+            lmem = ex_tres(used['total'], 'mem', 0) / 1024
+            if mem < lmem:
+                mem = lmem
 
-            import pdb; pdb.set_trace()
-
-
-            elapsed = step.get("elapsed_raw")
-            cpu_time = step.get("cpu_time_raw")
-            max_rss = parse_memory(step.get("max_rss"))
+        import pdb; pdb.set_trace()
 
     return elapsed, cpu_time, max_rss
 
