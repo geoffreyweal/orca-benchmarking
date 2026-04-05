@@ -112,28 +112,28 @@ def parse_sacct_data(data):
         tres = {m['name' if m['type']=='gres' else 'type']: m[field] for m in objs}
         return tres.get(name, default)
 
-    for job in data.get("jobs", []):
+    jobs = data.get("jobs", [])
 
-        walltime = job['time']['elapsed']
+    if len(jobs) == 0:
+        raise Exception('Error: No data for ')
+    elif len(jobs) >= 2:
+        raise Exception('Error: More than 1 job for ')
 
-        tot_cpu_msec = 0
-        mem = -1
+    job = jobs[0]
 
-        for step in job.get("steps", []):
-            used = step['tres']['requested']
-            tot_cpu_msec += ex_tres(used['total'], 'cpu', 0)
-            lmem = ex_tres(used['total'], 'mem', 0) / 1024
-            if mem < lmem:
-                mem = lmem
+    walltime_sec = job['time']['elapsed']
 
-        import pdb; pdb.set_trace()
+    tot_cpu_msec = 0
+    mem_kb = -1
 
-    return elapsed, cpu_time, max_rss
+    for step in job.get("steps", []):
+        used = step['tres']['requested']
+        tot_cpu_msec += ex_tres(used['total'], 'cpu', 0)
+        lmem = ex_tres(used['total'], 'mem', 0) / 1024
+        if mem < lmem:
+            mem = lmem
 
-
-def ex_tres(objs, name, default=None, field='count'):
-    tres = {m['name' if m['type']=='gres' else 'type']: m[field] for m in objs}
-    return tres.get(name, default)
+    return walltime_sec, tot_cpu_msec / 1000, mem_kb / 1024
 
 # ------------------------------------------------------------
 # Main report logic
