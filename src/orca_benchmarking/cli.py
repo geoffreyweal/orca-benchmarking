@@ -5,7 +5,8 @@ import shutil
 import re
 
 # ------------------------------------------------------------
-# Parse core ranges including stepped syntax (e.g. 64-128%4)
+# Parse core ranges including stepped syntax
+# e.g. 1-10,12-20%2,24-100%4
 # ------------------------------------------------------------
 def parse_core_ranges(ranges_str):
     cores = []
@@ -27,13 +28,13 @@ def parse_core_ranges(ranges_str):
             else:
                 cores.extend(range(start, end + 1))
         else:
-            cores.append(int(part))
+            cores.append(int(base))
 
     return sorted(set(cores))
 
 
 # ------------------------------------------------------------
-# Convert memory per CPU into MB for ORCA %MAXCORE
+# Convert memory-per-CPU into MB for ORCA %MAXCORE
 # ------------------------------------------------------------
 def convert_memory_to_mb(mem_str):
     mem_str = mem_str.upper().replace(" ", "")
@@ -45,13 +46,12 @@ def convert_memory_to_mb(mem_str):
 
 
 # ------------------------------------------------------------
-# Modify ORCA input safely (%PAL and %MAXCORE only)
+# Modify ORCA input safely (%PAL + %MAXCORE only)
 # ------------------------------------------------------------
 def modify_orca_input(src, dst, ncores, maxcore_mb):
     with open(src, "r") as f:
         text = f.read()
 
-    # ---- %PAL ----
     pal_pattern = re.compile(r"(%PAL[\s\S]*?END)", flags=re.IGNORECASE)
     if pal_pattern.search(text):
         def repl(match):
@@ -66,7 +66,6 @@ def modify_orca_input(src, dst, ncores, maxcore_mb):
     else:
         text = f"%PAL\n  NPROCS {ncores}\nEND\n" + text
 
-    # ---- %MAXCORE ----
     max_pattern = re.compile(r"%MAXCORE\s+\d+", flags=re.IGNORECASE)
     if max_pattern.search(text):
         text = max_pattern.sub(f"%MAXCORE {maxcore_mb}", text)
@@ -78,11 +77,12 @@ def modify_orca_input(src, dst, ncores, maxcore_mb):
 
 
 # ------------------------------------------------------------
-# Copy optional ORCA data directory
+# Copy optional ORCA support data
 # ------------------------------------------------------------
 def copy_support_data(src_folder, dest_folder):
     if not os.path.isdir(src_folder):
         raise NotADirectoryError(f"Support data folder not found: {src_folder}")
+
     for item in os.listdir(src_folder):
         s = os.path.join(src_folder, item)
         d = os.path.join(dest_folder, item)
@@ -114,17 +114,16 @@ def parse_include_file(path):
 
 
 # ------------------------------------------------------------
-# Create submit_array.sl (final version with output redirection)
+# Create submit_array.sl (explicit array list)
 # ------------------------------------------------------------
 def create_array_submit_script(
     path,
     sbatch_lines,
     orca_version,
-    raw_core_string,
+    array_string,
     max_cores,
     mem_per_cpu,
 ):
-
     header = [
         "#!/bin/bash -e",
         "",
@@ -136,13 +135,12 @@ def create_array_submit_script(
         "# Each array index corresponds directly to the number of MPI cores.",
         "# ============================================================",
         "",
-        f"#SBATCH --array={raw_core_string}",
+        f"#SBATCH --array={array_string}",
         f"#SBATCH --ntasks={max_cores}",
         f"#SBATCH --mem-per-cpu={mem_per_cpu}",
         "#SBATCH --gres=ssd:1",
     ]
 
-    # Add SBATCH lines from include file, excluding ntasks & mem-per-cpu
     for line in sbatch_lines:
         if "--ntasks=" in line or "--mem-per-cpu=" in line:
             continue
@@ -186,7 +184,6 @@ module load {orca_version}
     section4 = r"""
 # ------------------------------------------------------------
 # 4) RUN ORCA
-# Run from TMPDIR, but write output back to permanent folder
 # ------------------------------------------------------------
 orca_exe=$(which orca)
 $orca_exe orca.inp > ${OUTPUTDIR}/orca.out
@@ -212,10 +209,11 @@ def main():
     parser.add_argument("--cores", required=True)
     parser.add_argument("--copy-data")
     parser.add_argument("--mem-per-cpu", required=True)
+
     args = parser.parse_args()
 
-    raw_core_string = args.cores
     core_list = parse_core_ranges(args.cores)
+    array_string = ",".join(str(c) for c in core_list)  # ✅ EXPLICIT ARRAY LIST
     max_cores = max(core_list)
     maxcore_mb = convert_memory_to_mb(args.mem_per_cpu)
 
@@ -224,7 +222,6 @@ def main():
     bench_root = "orca_benchmarking"
     os.makedirs(bench_root, exist_ok=True)
 
-    # Create a directory for each core count
     for n in core_list:
         folder = os.path.join(bench_root, f"{n}cores")
         os.makedirs(folder, exist_ok=True)
@@ -241,20 +238,18 @@ def main():
 
         print(f"✅ Created folder: {folder}")
 
-    # Write submit_array.sl
     submit_path = os.path.join(bench_root, "submit_array.sl")
     create_array_submit_script(
         submit_path,
         sbatch_lines,
         orca_version,
-        raw_core_string,
+        array_string,
         max_cores,
         args.mem_per_cpu,
     )
 
     print(f"\n✅ submit_array.sl written to: {submit_path}")
     print("✅ Done.")
-
 
 def cli():
     main()
