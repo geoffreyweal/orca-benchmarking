@@ -7,6 +7,7 @@ import json
 import statistics
 import argparse
 
+from tqdm import tqdm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -162,7 +163,11 @@ def main():
 
     results = []
 
-    for filename in sorted(os.listdir(bench_dir)):
+    for filename in tqdm(
+        sorted(os.listdir(bench_dir)),
+        desc="Processing benchmarks",
+        unit="job",
+    ):
         m = SLURM_FILE_REGEX.match(filename)
         if not m:
             continue
@@ -175,9 +180,9 @@ def main():
             continue
 
         (
-            diis_mean, diis_std,
-            soscf_mean, soscf_std,
-            geom_mean, geom_std,
+            diis_mean, _,
+            soscf_mean, _,
+            geom_mean, _,
         ) = parse_orca_output(orca_out)
 
         sacct_json = run_sacct(jobid, cores)
