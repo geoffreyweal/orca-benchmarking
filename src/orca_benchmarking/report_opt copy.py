@@ -6,11 +6,10 @@ import sys
 import json
 import statistics
 import argparse
-from tqdm import tqdm
 
-# Altair / plotting imports (Plotly removed)
-import pandas as pd
-import altair as alt
+from tqdm import tqdm
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # ------------------------------------------------------------
 # Constants
@@ -29,13 +28,14 @@ def parse_orca_output(path):
     in_diis = False
     in_soscf = False
 
-    iter_line_re = re.compile(r"^\s*\d+.\*\s+([0-9]+(?:\.[0-9]+)?)\s*$")
+    iter_line_re = re.compile(r"^\s*\d+.*\s+([0-9]+(?:\.[0-9]+)?)\s*$")
     geom_iter_re = re.compile(
         r"Time for complete geometry iter\s*:\s*([0-9]+(?:\.[0-9]+)?)"
     )
 
     with open(path, "r") as f:
         for line in f:
+
             # Blank line always terminates DIIS / SOSCF tables
             if line.strip() == "":
                 in_diis = False
@@ -103,8 +103,8 @@ def parse_sacct_data(data):
         return default
 
     job = data["jobs"][0]
-    elapsed = job["time"]["elapsed"]
 
+    elapsed = job["time"]["elapsed"]
     cpu_msec = 0
     max_mem_b = -1
 
@@ -151,10 +151,7 @@ def main():
             continue
 
         jobid, cores = m.group(1), int(m.group(2))
-
-        orca_out = os.path.join(
-            bench_dir, f"{cores}cores", "orca.out"
-        )
+        orca_out = os.path.join(bench_dir, f"{cores}cores", "orca.out")
         if not os.path.isfile(orca_out):
             continue
 
@@ -181,57 +178,106 @@ def main():
     results.sort(key=lambda r: r["cores"])
 
     # --------------------------------------------------------
-    # Altair figure (HTML only)
+    # Plotly figure (HTML only)
     # --------------------------------------------------------
-    print("\n📈 Generating Altair figure…")
+    print("\n📈 Generating Plotly figure…")
 
-    df = pd.DataFrame(results)
+    cores = [r["cores"] for r in results]
 
-    base = alt.Chart(df).encode(
-        x=alt.X(
-            "cores:Q",
-            title="Number of cores",
-            axis=alt.Axis(tickMinStep=1),
-        )
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        shared_xaxes=True,
+        subplot_titles=[
+            "CPU efficiency",
+            "Mean DIIS iteration time",
+            "Mean SOSCF iteration time",
+            "Mean geometry iteration time",
+        ],
     )
 
-    cpu_eff = base.mark_line(point=True).encode(
-        y=alt.Y(
-            "cpu_eff_percent:Q",
-            title="CPU efficiency (%)",
-            scale=alt.Scale(domain=[0, 100]),
-        )
-    ).properties(title="CPU efficiency")
+    # ⭐ THIS IS THE KEY FIX FOR HOVER SYNCHRONISATION ⭐
+    fig.update_xaxes(matches="x")
 
-    diis = base.mark_line(point=True).encode(
-        y=alt.Y(
-            "diis_mean_s:Q",
-            title="Mean DIIS iteration time (s)",
-        )
-    ).properties(title="Mean DIIS iteration time")
-
-    soscf = base.mark_line(point=True).encode(
-        y=alt.Y(
-            "soscf_mean_s:Q",
-            title="Mean SOSCF iteration time (s)",
-        )
-    ).properties(title="Mean SOSCF iteration time")
-
-    geom = base.mark_line(point=True).encode(
-        y=alt.Y(
-            "geom_iter_mean_s:Q",
-            title="Mean geometry iteration time (s)",
-        )
-    ).properties(title="Mean geometry iteration time")
-
-    chart = (
-        (cpu_eff | diis)
-        & (soscf | geom)
-    ).properties(
-        title="ORCA optimisation benchmarking"
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["cpu_eff_percent"] for r in results],
+            mode="lines+markers",
+            name="CPU efficiency",
+        ),
+        row=1,
+        col=1,
     )
 
-    chart.save("orca_benchmark_results_opt.html")
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["diis_mean_s"] for r in results],
+            mode="lines+markers",
+            name="DIIS mean",
+        ),
+        row=1,
+        col=2,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["soscf_mean_s"] for r in results],
+            mode="lines+markers",
+            name="SOSCF mean",
+        ),
+        row=2,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["geom_iter_mean_s"] for r in results],
+            mode="lines+markers",
+            name="Geometry mean",
+        ),
+        row=2,
+        col=2,
+    )
+
+    # X-axis labels and ticks on ALL subplots
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=1)
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=2)
+    fig.update_xaxes(title_text="Number of cores", row=2, col=1)
+    fig.update_xaxes(title_text="Number of cores", row=2, col=2)
+
+    # Y-axis labels and ranges
+    fig.update_yaxes(
+        title_text="CPU efficiency (%)",
+        range=[0, 100],
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Mean DIIS iteration time (s)",
+        row=1,
+        col=2,
+    )
+    fig.update_yaxes(
+        title_text="Mean SOSCF iteration time (s)",
+        row=2,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Mean geometry iteration time (s)",
+        row=2,
+        col=2,
+    )
+
+    fig.update_layout(
+        title="ORCA optimisation benchmarking",
+        hovermode="x unified",
+    )
+
+    fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
     print("✅ Plot written to orca_benchmark_results_opt.html")
 
     # --------------------------------------------------------
@@ -239,15 +285,10 @@ def main():
     # --------------------------------------------------------
     if args.csv:
         print("\n📄 Writing CSV output…")
-        with open(
-            "orca_benchmark_results_opt.csv",
-            "w",
-            newline="",
-        ) as f:
+        with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=results[0].keys())
             w.writeheader()
             w.writerows(results)
-
         print("✅ CSV written to orca_benchmark_results_opt.csv")
 
     print("\n🎉 Done.")
