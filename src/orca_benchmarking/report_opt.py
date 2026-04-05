@@ -8,7 +8,6 @@ import statistics
 import argparse
 from tqdm import tqdm
 
-# Altair / plotting imports (Plotly removed)
 import pandas as pd
 import altair as alt
 
@@ -36,7 +35,6 @@ def parse_orca_output(path):
 
     with open(path, "r") as f:
         for line in f:
-            # Blank line always terminates DIIS / SOSCF tables
             if line.strip() == "":
                 in_diis = False
                 in_soscf = False
@@ -84,7 +82,7 @@ def parse_orca_output(path):
     )
 
 # ------------------------------------------------------------
-# sacct helpers (UNCHANGED semantics)
+# sacct helpers
 # ------------------------------------------------------------
 def run_sacct(jobid, taskid):
     result = subprocess.run(
@@ -161,7 +159,6 @@ def main():
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
 
-        # CPU efficiency (exact formula retained)
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -195,40 +192,69 @@ def main():
         )
     )
 
+    PLOT_SIZE = 300
+
     cpu_eff = base.mark_line(point=True).encode(
         y=alt.Y(
             "cpu_eff_percent:Q",
             title="CPU efficiency (%)",
             scale=alt.Scale(domain=[0, 100]),
         )
-    ).properties(title="CPU efficiency")
+    ).properties(
+        title="CPU efficiency",
+        height=PLOT_SIZE,
+        width="container",
+    )
 
-    diis = base.mark_line(point=True).encode(
+    diis = base.mark_line(
+        point=True,
+        defined="datum.diis_mean_s != null",
+    ).encode(
         y=alt.Y(
             "diis_mean_s:Q",
             title="Mean DIIS iteration time (s)",
         )
-    ).properties(title="Mean DIIS iteration time")
+    ).properties(
+        title="Mean DIIS iteration time",
+        height=PLOT_SIZE,
+        width="container",
+    )
 
-    soscf = base.mark_line(point=True).encode(
+    soscf = base.mark_line(
+        point=True,
+        defined="datum.soscf_mean_s != null",
+    ).encode(
         y=alt.Y(
             "soscf_mean_s:Q",
             title="Mean SOSCF iteration time (s)",
         )
-    ).properties(title="Mean SOSCF iteration time")
+    ).properties(
+        title="Mean SOSCF iteration time",
+        height=PLOT_SIZE,
+        width="container",
+    )
 
-    geom = base.mark_line(point=True).encode(
+    geom = base.mark_line(
+        point=True,
+        defined="datum.geom_iter_mean_s != null",
+    ).encode(
         y=alt.Y(
             "geom_iter_mean_s:Q",
             title="Mean geometry iteration time (s)",
         )
-    ).properties(title="Mean geometry iteration time")
+    ).properties(
+        title="Mean geometry iteration time",
+        height=PLOT_SIZE,
+        width="container",
+    )
 
     chart = (
         (cpu_eff | diis)
         & (soscf | geom)
     ).properties(
         title="ORCA optimisation benchmarking"
+    ).configure_view(
+        autosize="fit"
     )
 
     chart.save("orca_benchmark_results_opt.html")
@@ -239,11 +265,7 @@ def main():
     # --------------------------------------------------------
     if args.csv:
         print("\n📄 Writing CSV output…")
-        with open(
-            "orca_benchmark_results_opt.csv",
-            "w",
-            newline="",
-        ) as f:
+        with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=results[0].keys())
             w.writeheader()
             w.writerows(results)
