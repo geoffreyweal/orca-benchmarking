@@ -274,6 +274,7 @@ def main():
     fig.update_layout(
         title="ORCA optimisation benchmarking",
         hovermode="x unified",
+        template="none",
     )
 
     fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
