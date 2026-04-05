@@ -194,8 +194,6 @@ def main():
         ],
     )
 
-    fig.update_xaxes(matches="x")
-
     fig.add_trace(
         go.Scatter(
             x=cores,
@@ -241,28 +239,29 @@ def main():
     )
 
     # Axis labels
-    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=1)
-    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=2)
-    fig.update_xaxes(title_text="Number of cores", row=2, col=1)
-    fig.update_xaxes(title_text="Number of cores", row=2, col=2)
-
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True)
     fig.update_yaxes(title_text="CPU efficiency (%)", range=[0, 100], row=1, col=1)
     fig.update_yaxes(title_text="Mean DIIS iteration time (s)", row=1, col=2)
     fig.update_yaxes(title_text="Mean SOSCF iteration time (s)", row=2, col=1)
     fig.update_yaxes(title_text="Mean geometry iteration time (s)", row=2, col=2)
 
-    # Enforce square subplots
-    fig.update_yaxes(scaleanchor="x", row=1, col=1)
-    fig.update_yaxes(scaleanchor="x2", row=1, col=2)
-    fig.update_yaxes(scaleanchor="x3", row=2, col=1)
-    fig.update_yaxes(scaleanchor="x4", row=2, col=2)
-
+    # --------------------------------------------------------
+    # Layout: PHYSICALLY SQUARE FIGURE
+    # --------------------------------------------------------
     fig.update_layout(
         title="ORCA optimisation benchmarking",
         hovermode="x unified",
         template="none",
-        autosize=True,
-        margin=dict(l=60, r=40, t=80, b=60),
+
+        width=1200,
+        height=1200,   # square figure (px × px)
+
+        margin=dict(
+            l=80,
+            r=40,
+            t=100,
+            b=80,
+        ),
     )
 
     fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
