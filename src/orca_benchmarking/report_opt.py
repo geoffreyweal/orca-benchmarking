@@ -178,7 +178,7 @@ def main():
     results.sort(key=lambda r: r["cores"])
 
     # --------------------------------------------------------
-    # Altair figure (HTML only)
+    # Altair figure (HTML only) — Altair v5 SAFE
     # --------------------------------------------------------
     print("\n📈 Generating Altair figure…")
 
@@ -253,8 +253,6 @@ def main():
         & (soscf | geom)
     ).properties(
         title="ORCA optimisation benchmarking"
-    ).configure_view(
-        autosize="fit"
     )
 
     chart.save("orca_benchmark_results_opt.html")
