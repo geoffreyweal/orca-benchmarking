@@ -71,7 +71,7 @@ report_opt.py
 ```
 
 This script parses ORCA output files together with SLURM accounting data to
-create a publication-quality Plotly figure showing performance scaling with
+create a Plotly figure showing performance scaling with
 CPU core count.
 
 ### Directory layout requirement
@@ -81,7 +81,6 @@ The expected layout is:
 
 ```
 .
-├── report_opt.py
 └── orca_benchmarking/
     ├── slurm-<jobid>_<cores>.out
     ├── 1cores/orca.out
@@ -125,7 +124,7 @@ The report contains:
   - Mean DIIS iteration time
   - Mean SOSCF iteration time
   - Mean geometry optimisation iteration time
-- Axes starting at **(0, 0)** on all plots
+- Axes starting at **(0,0)** on all plots
 - Full axis lines, ticks, labels, and trace legends
 - Synchronized hover comparisons across core counts
 

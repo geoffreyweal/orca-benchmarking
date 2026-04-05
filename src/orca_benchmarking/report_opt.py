@@ -291,6 +291,3 @@ def main():
         print("✅ CSV written to orca_benchmark_results_opt.csv")
 
     print("🎉 Done.")
-
-if __name__ == "__main__":
-    main()
