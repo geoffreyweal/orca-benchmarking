@@ -133,6 +133,8 @@ def parse_sacct_data(data):
         if mem < lmem:
             mem = lmem
 
+    import pdb; pdb.set_trace()
+
     return walltime_sec, tot_cpu_msec / 1000, mem_kb / 1024
 
 # ------------------------------------------------------------
@@ -184,8 +186,6 @@ def main():
         except Exception as exc:
             print(f"⚠ sacct failed for {jobid}_{cores}: {exc}")
             elapsed_s = cpu_used_s = max_rss_mb = None
-
-        import pdb; pdb.set_trace()
 
         time_per_step = (
             elapsed_s / opt_steps
