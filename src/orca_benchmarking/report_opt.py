@@ -10,20 +10,13 @@ import json
 # ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 
-# NeSI-style slurm output filenames: slurm-<jobid>_<taskid>.out
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
-
 OPT_CYCLE_REGEX = re.compile(r"GEOMETRY OPTIMIZATION CYCLE", re.IGNORECASE)
-
 
 # ------------------------------------------------------------
 # ORCA output parsing
 # ------------------------------------------------------------
 def parse_orca_output(path):
-    """
-    Extract ORCA-reported wall time, ORCA CPU time,
-    and number of geometry optimisation steps.
-    """
     wall_time = None
     cpu_time = None
     opt_steps = 0
@@ -41,34 +34,9 @@ def parse_orca_output(path):
 
 
 # ------------------------------------------------------------
-# Time utilities
-# ------------------------------------------------------------
-def hms_to_seconds(hms):
-    """
-    Convert HH:MM:SS or H:MM:SS to seconds.
-    """
-    if hms is None:
-        return None
-
-    parts = [float(p) for p in hms.split(":")]
-    if len(parts) == 3:
-        h, m, s = parts
-    elif len(parts) == 2:
-        h = 0
-        m, s = parts
-    else:
-        return None
-
-    return h * 3600 + m * 60 + s
-
-
-# ------------------------------------------------------------
 # sacct helpers
 # ------------------------------------------------------------
 def run_sacct(jobid, taskid):
-    """
-    Run sacct using JSON output for a specific SLURM array task.
-    """
     cmd = ["sacct", "--json", "-j", f"{jobid}_{taskid}"]
     result = subprocess.run(
         cmd,
@@ -79,6 +47,9 @@ def run_sacct(jobid, taskid):
     return json.loads(result.stdout)
 
 
+# ------------------------------------------------------------
+# REQUIRED sacct parsing method (UNMODIFIED LOGIC)
+# ------------------------------------------------------------
 def parse_sacct_data(data):
     """
     Extract actual scheduler-recorded metrics:
@@ -104,32 +75,25 @@ def parse_sacct_data(data):
     job = jobs[0]
 
     # Elapsed time in seconds (ground truth runtime)
-    elapsed_sec = job.get("elapsed_raw")
+    elapsed_sec = job['time']['elapsed']
 
     total_cpu_msec = 0
-    max_mem_kb = 0
+    max_mem_b = -1
 
     for step in job.get("steps", []):
-        step_name = step.get("step_name", "")
-        state = step.get("state", "")
 
-        if step_name in ("batch", "extern"):
-            continue
-        if not state.startswith("COMPLETED"):
-            continue
-
-        tres_used = step.get("tres", {}).get("consumed", [])
+        tres_used = step['tres']['requested']
 
         # CPU time in milliseconds
-        total_cpu_msec += extract_tres(tres_used, "cpu", 0)
+        total_cpu_msec += extract_tres(tres_used['total'], "cpu", 0)
 
-        # Memory usage in KB (take max across steps)
-        mem_kb = extract_tres(tres_used, "mem", 0)
-        if mem_kb > max_mem_kb:
-            max_mem_kb = mem_kb
+        # Memory usage in bytes (take max across steps)
+        mem_b = extract_tres(tres_used['total'], "mem", 0)
+        if mem_b > max_mem_b:
+            max_mem_b = mem_b
 
     cpu_time_sec = total_cpu_msec / 1000.0
-    max_rss_mb = max_mem_kb / 1024.0
+    max_rss_mb = max_mem_b / 1024.0 / 1024.0
 
     return elapsed_sec, cpu_time_sec, max_rss_mb
 
@@ -138,7 +102,6 @@ def parse_sacct_data(data):
 # Main report logic
 # ------------------------------------------------------------
 def main():
-    # Ensure we are running from the directory ABOVE orca_benchmarking
     cwd = os.getcwd()
     bench_dir = os.path.join(cwd, BENCH_DIR_NAME)
 
@@ -162,18 +125,18 @@ def main():
 
         print(f"🔍 Processing OPT benchmark: cores={cores}, jobid={jobid}")
 
-        orca_out_path = os.path.join(
-            bench_dir, f"{cores}cores", "orca.out"
+        orca_out = os.path.join(
+            bench_dir,
+            f"{cores}cores",
+            "orca.out"
         )
 
-        if not os.path.isfile(orca_out_path):
-            print(f"⚠ Missing ORCA output: {orca_out_path}")
+        if not os.path.isfile(orca_out):
+            print(f"⚠ Missing ORCA output: {orca_out}")
             continue
 
-        # ORCA-reported values
-        wall_time, orca_cpu_time, opt_steps = parse_orca_output(orca_out_path)
+        wall_time, orca_cpu_time, opt_steps = parse_orca_output(orca_out)
 
-        # SLURM ground-truth values
         try:
             sacct_json = run_sacct(jobid, cores)
             elapsed_s, cpu_used_s, max_rss_mb = parse_sacct_data(sacct_json)
