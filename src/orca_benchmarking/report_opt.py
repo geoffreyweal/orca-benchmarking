@@ -205,10 +205,11 @@ def main():
     )
 
     # --------------------------------------------------------
-    # Axis styling (lines, ticks, labels)
+    # Axis styling and limits (ALL START AT 0)
     # --------------------------------------------------------
     fig.update_xaxes(
         title_text="Number of cores",
+        range=[0, max(cores)],
         showline=True,
         linecolor="black",
         linewidth=1,
@@ -228,6 +229,7 @@ def main():
         tickwidth=1,
         tickcolor="black",
         showticklabels=True,
+        rangemode="tozero",
     )
 
     fig.update_yaxes(
