@@ -35,6 +35,8 @@ def parse_orca_output(path):
 
     with open(path, "r") as f:
         for line in f:
+
+            # Blank line terminates DIIS / SOSCF tables
             if line.strip() == "":
                 in_diis = False
                 in_soscf = False
@@ -82,7 +84,7 @@ def parse_orca_output(path):
     )
 
 # ------------------------------------------------------------
-# sacct helpers (unchanged)
+# sacct helpers (UNCHANGED semantics)
 # ------------------------------------------------------------
 def run_sacct(jobid, taskid):
     result = subprocess.run(
@@ -154,12 +156,10 @@ def main():
         if not os.path.isfile(orca_out):
             continue
 
-        tqdm.write(f"  ↳ cores={cores}: parsing orca.out")
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
-
-        tqdm.write(f"  ↳ cores={cores}: querying sacct ({jobid}_{cores})")
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
 
+        # ✅ CPU efficiency formula EXACTLY as requested
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -173,31 +173,99 @@ def main():
             "geom_iter_mean_s": geom_m,
         })
 
+    if not results:
+        sys.exit("\n❌ No optimisation benchmark data found.\n")
+
     results.sort(key=lambda r: r["cores"])
 
+    # --------------------------------------------------------
+    # Plotly figure (HTML only, no browser)
+    # --------------------------------------------------------
     print("\n📈 Generating Plotly figure…")
 
     cores = [r["cores"] for r in results]
+
     fig = make_subplots(
         rows=2,
         cols=2,
         shared_xaxes=True,
         subplot_titles=[
-            "CPU efficiency (%)",
-            "Mean DIIS iteration time (s)",
-            "Mean SOSCF iteration time (s)",
-            "Mean geometry iteration time (s)",
+            "CPU efficiency",
+            "Mean DIIS iteration time",
+            "Mean SOSCF iteration time",
+            "Mean geometry iteration time",
         ],
     )
 
-    fig.add_trace(go.Scatter(x=cores, y=[r["cpu_eff_percent"] for r in results],
-                             mode="lines+markers"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=cores, y=[r["diis_mean_s"] for r in results],
-                             mode="lines+markers"), row=1, col=2)
-    fig.add_trace(go.Scatter(x=cores, y=[r["soscf_mean_s"] for r in results],
-                             mode="lines+markers"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=cores, y=[r["geom_iter_mean_s"] for r in results],
-                             mode="lines+markers"), row=2, col=2)
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["cpu_eff_percent"] for r in results],
+            mode="lines+markers",
+            name="CPU efficiency",
+        ),
+        row=1,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["diis_mean_s"] for r in results],
+            mode="lines+markers",
+            name="DIIS mean",
+        ),
+        row=1,
+        col=2,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["soscf_mean_s"] for r in results],
+            mode="lines+markers",
+            name="SOSCF mean",
+        ),
+        row=2,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["geom_iter_mean_s"] for r in results],
+            mode="lines+markers",
+            name="Geometry mean",
+        ),
+        row=2,
+        col=2,
+    )
+
+    # Axis labels and ranges
+    fig.update_xaxes(title_text="Number of cores", row=2, col=1)
+    fig.update_xaxes(title_text="Number of cores", row=2, col=2)
+
+    fig.update_yaxes(
+        title_text="CPU efficiency (%)",
+        range=[0, 100],
+        row=1,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Mean DIIS iteration time (s)",
+        row=1,
+        col=2,
+    )
+    fig.update_yaxes(
+        title_text="Mean SOSCF iteration time (s)",
+        row=2,
+        col=1,
+    )
+    fig.update_yaxes(
+        title_text="Mean geometry iteration time (s)",
+        row=2,
+        col=2,
+    )
 
     fig.update_layout(
         title="ORCA optimisation benchmarking",
@@ -207,6 +275,9 @@ def main():
     fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
     print("✅ Plot written to orca_benchmark_results_opt.html")
 
+    # --------------------------------------------------------
+    # Optional CSV
+    # --------------------------------------------------------
     if args.csv:
         print("\n📄 Writing CSV output…")
         with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
@@ -217,6 +288,8 @@ def main():
 
     print("\n🎉 Done.")
 
+# ------------------------------------------------------------
+# CLI entry point
 # ------------------------------------------------------------
 def cli():
     main()
