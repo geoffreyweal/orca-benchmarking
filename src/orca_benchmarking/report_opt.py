@@ -118,8 +118,6 @@ def main():
     # Scan for SLURM output files
     for filename in sorted(os.listdir(bench_dir)):
         match = SLURM_FILE_REGEX.match(filename)
-
-        import pdb; pdb.set_trace()
         if not match:
             continue
 
@@ -133,6 +131,8 @@ def main():
             f"{cores}cores",
             "orca.out",
         )
+
+        import pdb; pdb.set_trace()
 
         if not os.path.isfile(orca_out_path):
             print(f"⚠ Missing ORCA output: {orca_out_path}")
