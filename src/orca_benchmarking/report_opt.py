@@ -112,6 +112,7 @@ def parse_sacct_data(data):
     max_rss = None
 
     for job in data.get("jobs", []):
+        import pdb; pdb.set_trace()
         for step in job.get("steps", []):
             step_name = step.get("step_name", "")
 
@@ -129,6 +130,10 @@ def parse_sacct_data(data):
 
     return elapsed, cpu_time, max_rss
 
+
+def ex_tres(objs, name, default=None, field='count'):
+    tres = {m['name' if m['type']=='gres' else 'type']: m[field] for m in objs}
+    return tres.get(name, default)
 
 # ------------------------------------------------------------
 # Main report logic
