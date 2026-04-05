@@ -5,13 +5,15 @@ import csv
 import sys
 import json
 import statistics
+import argparse
+
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # ------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
-
-# NeSI-style SLURM output files
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
 
 # ------------------------------------------------------------
@@ -65,7 +67,6 @@ def parse_orca_output(path):
             if line.strip().startswith("---"):
                 continue
 
-            # Iteration timing rows
             m = iter_line_re.match(line)
             if not m:
                 continue
@@ -89,20 +90,15 @@ def parse_orca_output(path):
         *mean_std(geom_iter_times),
     )
 
-
 # ------------------------------------------------------------
 # sacct helpers
 # ------------------------------------------------------------
 def run_sacct(jobid, taskid):
     cmd = ["sacct", "--json", "-j", f"{jobid}_{taskid}"]
     result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=True,
+        cmd, capture_output=True, text=True, check=True
     )
     return json.loads(result.stdout)
-
 
 # ------------------------------------------------------------
 # REQUIRED sacct parsing method (UNCHANGED)
@@ -115,7 +111,6 @@ def parse_sacct_data(data):
         return default
 
     jobs = data.get("jobs", [])
-
     if len(jobs) == 0:
         raise RuntimeError("sacct returned no job data")
     if len(jobs) > 1:
@@ -129,7 +124,6 @@ def parse_sacct_data(data):
 
     for step in job.get("steps", []):
         tres_used = step["tres"]["requested"]
-
         total_cpu_msec += extract_tres(tres_used["total"], "cpu", 0)
 
         mem_b = extract_tres(tres_used["total"], "mem", 0)
@@ -142,11 +136,20 @@ def parse_sacct_data(data):
         max_mem_b / 1024.0 / 1024.0,
     )
 
-
 # ------------------------------------------------------------
-# Main report logic
+# Main
 # ------------------------------------------------------------
 def main():
+    parser = argparse.ArgumentParser(
+        description="Generate ORCA optimisation benchmarking report"
+    )
+    parser.add_argument(
+        "--csv",
+        action="store_true",
+        help="Write orca_benchmark_results_opt.csv",
+    )
+    args = parser.parse_args()
+
     cwd = os.getcwd()
     bench_dir = os.path.join(cwd, BENCH_DIR_NAME)
 
@@ -154,8 +157,7 @@ def main():
         sys.exit(
             f"\n❌ Error: '{BENCH_DIR_NAME}/' not found in:\n"
             f"    {cwd}\n\n"
-            "Please run this command from the directory ABOVE "
-            "'orca_benchmarking/'.\n"
+            "Please run from the directory ABOVE 'orca_benchmarking/'.\n"
         )
 
     results = []
@@ -168,57 +170,114 @@ def main():
         jobid, cores = m.groups()
         cores = int(cores)
 
-        print(f"🔍 Processing OPT benchmark: cores={cores}, jobid={jobid}")
-
         orca_out = os.path.join(bench_dir, f"{cores}cores", "orca.out")
         if not os.path.isfile(orca_out):
-            print(f"⚠ Missing ORCA output: {orca_out}")
             continue
 
         (
             diis_mean, diis_std,
             soscf_mean, soscf_std,
-            geom_mean, geom_std
+            geom_mean, geom_std,
         ) = parse_orca_output(orca_out)
 
-        try:
-            sacct_json = run_sacct(jobid, cores)
-            elapsed_s, cpu_s, rss_mb = parse_sacct_data(sacct_json)
-        except Exception as exc:
-            print(f"⚠ sacct failed for {jobid}_{cores}: {exc}")
-            elapsed_s = cpu_s = rss_mb = None
+        sacct_json = run_sacct(jobid, cores)
+        elapsed_s, cpu_s, rss_mb = parse_sacct_data(sacct_json)
 
-        # ✅ Ensure numeric columns stay numeric (Excel-safe)
-        def clean(x):
-            return "" if x is None else float(x)
+        cpu_eff = (cpu_s / (elapsed_s * cores)) * 100.0
 
         results.append({
             "cores": cores,
-            "elapsed_time_s": clean(elapsed_s),
-            "cpu_time_s": clean(cpu_s),
-            "max_rss_mb": clean(rss_mb),
-            "diis_mean_s": clean(diis_mean),
-            "diis_std_s": clean(diis_std),
-            "soscf_mean_s": clean(soscf_mean),
-            "soscf_std_s": clean(soscf_std),
-            "geom_iter_mean_s": clean(geom_mean),
-            "geom_iter_std_s": clean(geom_std),
+            "elapsed_time_s": elapsed_s,
+            "cpu_time_s": cpu_s,
+            "cpu_eff_percent": cpu_eff,
+            "max_rss_mb": rss_mb,
+            "diis_mean_s": diis_mean,
+            "soscf_mean_s": soscf_mean,
+            "geom_iter_mean_s": geom_mean,
         })
 
     if not results:
         sys.exit("\n❌ No optimisation benchmark data found.\n")
 
-    # ✅ Ensure rows are ordered by core count
-    results.sort(key=lambda row: row["cores"])
+    results.sort(key=lambda r: r["cores"])
 
-    output_csv = "orca_benchmark_results_opt.csv"
-    with open(output_csv, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=results[0].keys())
-        writer.writeheader()
-        writer.writerows(results)
+    # --------------------------------------------------------
+    # CSV output (optional)
+    # --------------------------------------------------------
+    if args.csv:
+        with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+            writer.writeheader()
+            writer.writerows(results)
+        print("✅ orca_benchmark_results_opt.csv written")
 
-    print(f"\n✅ Optimisation benchmark report written to {output_csv}")
+    # --------------------------------------------------------
+    # Plotly figure
+    # --------------------------------------------------------
+    cores = [r["cores"] for r in results]
 
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        shared_xaxes=True,
+        subplot_titles=[
+            "CPU efficiency (%)",
+            "Mean DIIS iteration time (s)",
+            "Mean SOSCF iteration time (s)",
+            "Mean geometry iteration time (s)",
+        ],
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["cpu_eff_percent"] for r in results],
+            mode="lines+markers",
+            name="CPU efficiency",
+        ),
+        row=1,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["diis_mean_s"] for r in results],
+            mode="lines+markers",
+            name="DIIS mean",
+        ),
+        row=1,
+        col=2,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["soscf_mean_s"] for r in results],
+            mode="lines+markers",
+            name="SOSCF mean",
+        ),
+        row=2,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["geom_iter_mean_s"] for r in results],
+            mode="lines+markers",
+            name="Geometry mean",
+        ),
+        row=2,
+        col=2,
+    )
+
+    fig.update_layout(
+        title="ORCA optimisation benchmarking",
+        hovermode="x unified",
+    )
+
+    fig.show()
 
 # ------------------------------------------------------------
 # CLI entry point
