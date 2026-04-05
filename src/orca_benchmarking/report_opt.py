@@ -208,7 +208,7 @@ def main():
 
     diis = base.mark_line(
         point=True,
-        defined="datum.diis_mean_s != null",
+        invalid="filter",
     ).encode(
         y=alt.Y(
             "diis_mean_s:Q",
@@ -222,7 +222,7 @@ def main():
 
     soscf = base.mark_line(
         point=True,
-        defined="datum.soscf_mean_s != null",
+        invalid="filter",
     ).encode(
         y=alt.Y(
             "soscf_mean_s:Q",
@@ -236,7 +236,7 @@ def main():
 
     geom = base.mark_line(
         point=True,
-        defined="datum.geom_iter_mean_s != null",
+        invalid="filter",
     ).encode(
         y=alt.Y(
             "geom_iter_mean_s:Q",
