@@ -115,11 +115,11 @@ def main():
 
     results = []
 
-    import pdb; pdb.set_trace()
-
     # Scan for SLURM output files
     for filename in os.listdir(bench_dir):
         match = SLURM_FILE_REGEX.match(filename)
+
+        import pdb; pdb.set_trace()
         if not match:
             continue
 
