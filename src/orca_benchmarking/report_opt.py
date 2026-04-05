@@ -197,7 +197,16 @@ def main():
     )
 
     # ⭐ THIS IS THE KEY FIX FOR HOVER SYNCHRONISATION ⭐
-    fig.update_xaxes(matches="x")
+    # It draws a continuous line across all subplots, acting like your cursor is hovering over all of them.
+    fig.update_xaxes(
+        matches="x",
+        showspikes=True,
+        spikemode="across", 
+        spikesnap="cursor",
+        spikethickness=1,
+        spikecolor="grey",
+        spikedash="dash"
+    )
 
     fig.add_trace(
         go.Scatter(
@@ -272,9 +281,12 @@ def main():
         col=2,
     )
 
+    # Apply infinite distances to guarantee the hover line snaps beautifully across gaps
     fig.update_layout(
         title="ORCA optimisation benchmarking",
         hovermode="x unified",
+        spikedistance=-1, 
+        hoverdistance=-1, 
     )
 
     fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
