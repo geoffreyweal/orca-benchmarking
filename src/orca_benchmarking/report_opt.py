@@ -185,8 +185,6 @@ def main():
             print(f"⚠ sacct failed for {jobid}_{cores}: {exc}")
             elapsed_s = cpu_used_s = max_rss_mb = None
 
-        import pdb; pdb.set_trace()
-
         time_per_step = (
             elapsed_s / opt_steps
             if elapsed_s is not None and opt_steps > 0
