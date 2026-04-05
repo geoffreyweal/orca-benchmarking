@@ -36,7 +36,7 @@ def parse_orca_output(path):
     with open(path, "r") as f:
         for line in f:
 
-            # Blank line terminates DIIS / SOSCF tables
+            # Blank line always terminates DIIS / SOSCF tables
             if line.strip() == "":
                 in_diis = False
                 in_soscf = False
@@ -102,8 +102,7 @@ def parse_sacct_data(data):
                 return o.get("count", default)
         return default
 
-    jobs = data["jobs"]
-    job = jobs[0]
+    job = data["jobs"][0]
 
     elapsed = job["time"]["elapsed"]
     cpu_msec = 0
@@ -159,7 +158,7 @@ def main():
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
 
-        # CPU efficiency (UNCHANGED formula)
+        # CPU efficiency (exact formula retained)
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -179,7 +178,7 @@ def main():
     results.sort(key=lambda r: r["cores"])
 
     # --------------------------------------------------------
-    # Plotly figure (HTML only, no browser)
+    # Plotly figure (HTML only)
     # --------------------------------------------------------
     print("\n📈 Generating Plotly figure…")
 
@@ -196,6 +195,9 @@ def main():
             "Mean geometry iteration time",
         ],
     )
+
+    # ⭐ THIS IS THE KEY FIX FOR HOVER SYNCHRONISATION ⭐
+    fig.update_xaxes(matches="x")
 
     fig.add_trace(
         go.Scatter(
