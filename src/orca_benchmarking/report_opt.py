@@ -112,17 +112,11 @@ def parse_sacct_data(data):
     max_rss = None
 
     for job in data.get("jobs", []):
-        import pdb; pdb.set_trace()
         for step in job.get("steps", []):
             step_name = step.get("step_name", "")
 
-            # Skip noise
-            if step_name in ("batch", "extern"):
-                continue
+            import pdb; pdb.set_trace()
 
-            state = step.get("state", "")
-            if not state.startswith("COMPLETED"):
-                continue
 
             elapsed = step.get("elapsed_raw")
             cpu_time = step.get("cpu_time_raw")
