@@ -132,8 +132,6 @@ def main():
             "orca.out",
         )
 
-        import pdb; pdb.set_trace()
-
         if not os.path.isfile(orca_out_path):
             print(f"⚠ Missing ORCA output: {orca_out_path}")
             continue
@@ -154,6 +152,8 @@ def main():
         except Exception as exc:
             print(f"⚠ nn_seff failed for {jobid}_{cores}: {exc}")
             seff_data = {}
+
+        import pdb; pdb.set_trace()
 
         row = {
             "cores": cores,
