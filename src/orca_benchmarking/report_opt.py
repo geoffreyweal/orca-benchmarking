@@ -196,7 +196,6 @@ def main():
         ],
     )
 
-    # ⭐ THIS IS THE KEY FIX FOR HOVER SYNCHRONISATION ⭐
     fig.update_xaxes(matches="x")
 
     fig.add_trace(
