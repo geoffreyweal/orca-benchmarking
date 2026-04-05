@@ -35,8 +35,6 @@ def parse_orca_output(path):
 
     with open(path, "r") as f:
         for line in f:
-
-            # Blank line always terminates DIIS / SOSCF tables
             if line.strip() == "":
                 in_diis = False
                 in_soscf = False
@@ -84,7 +82,7 @@ def parse_orca_output(path):
     )
 
 # ------------------------------------------------------------
-# sacct helpers (UNCHANGED semantics)
+# sacct helpers
 # ------------------------------------------------------------
 def run_sacct(jobid, taskid):
     result = subprocess.run(
@@ -103,7 +101,6 @@ def parse_sacct_data(data):
         return default
 
     job = data["jobs"][0]
-
     elapsed = job["time"]["elapsed"]
     cpu_msec = 0
     max_mem_b = -1
@@ -133,19 +130,13 @@ def main():
     print("🔍 ORCA optimisation benchmark report")
 
     bench_dir = os.path.join(os.getcwd(), BENCH_DIR_NAME)
-    print(f"📁 Benchmark directory: {bench_dir}")
-
     if not os.path.isdir(bench_dir):
         sys.exit("❌ Run from the directory ABOVE orca_benchmarking/")
 
     results = []
 
     print("\n📊 Collecting benchmark results…")
-    for fname in tqdm(
-        sorted(os.listdir(bench_dir)),
-        desc="Processing benchmarks",
-        unit="job",
-    ):
+    for fname in tqdm(sorted(os.listdir(bench_dir)), desc="Processing benchmarks", unit="job"):
         m = SLURM_FILE_REGEX.match(fname)
         if not m:
             continue
@@ -158,7 +149,6 @@ def main():
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
 
-        # CPU efficiency (exact formula retained)
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -178,11 +168,11 @@ def main():
     results.sort(key=lambda r: r["cores"])
 
     # --------------------------------------------------------
-    # Plotly figure (HTML only)
+    # Plotly figure
     # --------------------------------------------------------
-    print("\n📈 Generating Plotly figure…")
+    print("\n📈 Generating Plotly figure with Synced Hover…")
 
-    cores = [r["cores"] for r in results]
+    cores_list = [r["cores"] for r in results]
 
     fig = make_subplots(
         rows=2,
@@ -196,114 +186,57 @@ def main():
         ],
     )
 
-    # ⭐ THIS IS THE KEY FIX FOR HOVER SYNCHRONISATION ⭐
-    # It draws a continuous line across all subplots, acting like your cursor is hovering over all of them.
-    fig.update_xaxes(
-        matches="x",
-        showspikes=True,
-        spikemode="across", 
-        spikesnap="cursor",
-        spikethickness=1,
-        spikecolor="grey",
-        spikedash="dash"
-    )
+    # Adding Traces
+    fig.add_trace(go.Scatter(x=cores_list, y=[r["cpu_eff_percent"] for r in results], mode="lines+markers", name="CPU efficiency"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=cores_list, y=[r["diis_mean_s"] for r in results], mode="lines+markers", name="DIIS mean"), row=1, col=2)
+    fig.add_trace(go.Scatter(x=cores_list, y=[r["soscf_mean_s"] for r in results], mode="lines+markers", name="SOSCF mean"), row=2, col=1)
+    fig.add_trace(go.Scatter(x=cores_list, y=[r["geom_iter_mean_s"] for r in results], mode="lines+markers", name="Geometry mean"), row=2, col=2)
 
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["cpu_eff_percent"] for r in results],
-            mode="lines+markers",
-            name="CPU efficiency",
-        ),
-        row=1,
-        col=1,
-    )
+    # Formatting Axes
+    fig.update_xaxes(title_text="Number of cores", showticklabels=True)
+    fig.update_yaxes(title_text="CPU efficiency (%)", range=[0, 100], row=1, col=1)
+    fig.update_yaxes(title_text="Time (s)", row=1, col=2)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=1)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=2)
 
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["diis_mean_s"] for r in results],
-            mode="lines+markers",
-            name="DIIS mean",
-        ),
-        row=1,
-        col=2,
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["soscf_mean_s"] for r in results],
-            mode="lines+markers",
-            name="SOSCF mean",
-        ),
-        row=2,
-        col=1,
-    )
-
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["geom_iter_mean_s"] for r in results],
-            mode="lines+markers",
-            name="Geometry mean",
-        ),
-        row=2,
-        col=2,
-    )
-
-    # X-axis labels and ticks on ALL subplots
-    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=1)
-    fig.update_xaxes(title_text="Number of cores", showticklabels=True, row=1, col=2)
-    fig.update_xaxes(title_text="Number of cores", row=2, col=1)
-    fig.update_xaxes(title_text="Number of cores", row=2, col=2)
-
-    # Y-axis labels and ranges
-    fig.update_yaxes(
-        title_text="CPU efficiency (%)",
-        range=[0, 100],
-        row=1,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="Mean DIIS iteration time (s)",
-        row=1,
-        col=2,
-    )
-    fig.update_yaxes(
-        title_text="Mean SOSCF iteration time (s)",
-        row=2,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="Mean geometry iteration time (s)",
-        row=2,
-        col=2,
-    )
-
-    # Apply infinite distances to guarantee the hover line snaps beautifully across gaps
     fig.update_layout(
         title="ORCA optimisation benchmarking",
-        hovermode="x unified",
-        spikedistance=-1, 
-        hoverdistance=-1, 
+        hovermode="closest",
     )
 
-    fig.write_html("orca_benchmark_results_opt.html", auto_open=False)
-    print("✅ Plot written to orca_benchmark_results_opt.html")
+    # JavaScript to synchronize hover across all subplots
+    hover_sync_js = """
+    var gd = document.getElementsByClassName('plotly-graph-div')[0];
+    
+    gd.on('plotly_hover', function(data) {
+        var xIndex = data.points[0].pointIndex;
+        var hoverData = [];
+        for (var i = 0; i < gd.data.length; i++) {
+            hoverData.push({curveNumber: i, pointNumber: xIndex});
+        }
+        Plotly.Fx.hover(gd, hoverData);
+    });
 
-    # --------------------------------------------------------
-    # Optional CSV
-    # --------------------------------------------------------
+    gd.on('plotly_unhover', function(data) {
+        Plotly.Fx.unhover(gd);
+    });
+    """
+
+    fig.write_html(
+        "orca_benchmark_results_opt.html", 
+        auto_open=False, 
+        include_plotlyjs="cdn",
+        post_script=hover_sync_js
+    )
+    print("✅ Plot written with synced hover to orca_benchmark_results_opt.html")
+
     if args.csv:
-        print("\n📄 Writing CSV output…")
         with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=results[0].keys())
             w.writeheader()
             w.writerows(results)
-        print("✅ CSV written to orca_benchmark_results_opt.csv")
+        print("✅ CSV written.")
 
-    print("\n🎉 Done.")
 
 # ------------------------------------------------------------
 # CLI entry point
