@@ -17,10 +17,6 @@
 #   * Shows two rows at a time
 #   * Uses explicit axis limits (all plots start at 0)
 #
-# NOTE:
-#   This file intentionally does NOT include
-#     if __name__ == "__main__":
-#   by user request.
 # ============================================================
 
 import os
