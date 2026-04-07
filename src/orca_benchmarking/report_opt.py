@@ -33,53 +33,36 @@ def parse_orca_output(path):
         r"Time for complete geometry iter\s*:\s*([0-9]+(?:\.[0-9]+)?)"
     )
 
-    with open(path, "r") as f:
+    with open(path) as f:
         for line in f:
             if line.strip() == "":
-                in_diis = False
-                in_soscf = False
+                in_diis = in_soscf = False
                 continue
-
             if "D-I-I-S" in line:
-                in_diis = True
-                in_soscf = False
+                in_diis, in_soscf = True, False
                 continue
-
             if "S-O-S-C-F" in line:
-                in_diis = False
-                in_soscf = True
+                in_diis, in_soscf = False, True
                 continue
-
             g = geom_iter_re.search(line)
             if g:
                 geom_iter_times.append(float(g.group(1)))
                 continue
-
             if line.strip().startswith("---"):
                 continue
-
             m = iter_line_re.match(line)
             if not m:
                 continue
-
             t = float(m.group(1))
             if in_diis:
                 diis_times.append(t)
             elif in_soscf:
                 soscf_times.append(t)
 
-    def mean_std(values):
-        if not values:
-            return None, None
-        if len(values) == 1:
-            return values[0], 0.0
-        return statistics.mean(values), statistics.stdev(values)
+    def mean(values):
+        return statistics.mean(values) if values else None
 
-    return (
-        *mean_std(diis_times),
-        *mean_std(soscf_times),
-        *mean_std(geom_iter_times),
-    )
+    return mean(diis_times), mean(soscf_times), mean(geom_iter_times)
 
 # ------------------------------------------------------------
 # sacct helpers
@@ -102,7 +85,6 @@ def parse_sacct_data(data):
 
     job = data["jobs"][0]
     elapsed = job["time"]["elapsed"]
-
     cpu_msec = 0
     max_mem_b = -1
 
@@ -112,11 +94,7 @@ def parse_sacct_data(data):
         mem = extract_tres(tres, "mem", 0)
         max_mem_b = max(max_mem_b, mem)
 
-    return (
-        float(elapsed),
-        cpu_msec / 1000.0,
-        max_mem_b / 1024.0 / 1024.0,
-    )
+    return float(elapsed), cpu_msec / 1000.0, max_mem_b / 1024 / 1024
 
 # ------------------------------------------------------------
 # Main
@@ -140,11 +118,8 @@ def main():
 
     results = []
 
-    for fname in tqdm(
-        sorted(os.listdir(bench_dir)),
-        desc="Processing SLURM outputs",
-        unit="job",
-    ):
+    for fname in tqdm(sorted(os.listdir(bench_dir)),
+                      desc="Processing SLURM outputs", unit="job"):
         m = SLURM_FILE_REGEX.match(fname)
         if not m:
             continue
@@ -154,201 +129,102 @@ def main():
         if not os.path.isfile(orca_out):
             continue
 
-        diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
+        diis, soscf, geom = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
-
-        cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
             "cores": cores,
-            "cpu_eff": cpu_eff,
-            "diis": diis_m,
-            "soscf": soscf_m,
-            "geom": geom_m,
+            "diis": diis,
+            "soscf": soscf,
+            "geom": geom,
         })
-
-    if not results:
-        sys.exit("❌ No benchmark data found")
 
     results.sort(key=lambda r: r["cores"])
     cores = [r["cores"] for r in results]
 
-    # --------------------------------------------------------
-    # Ideal scaling curves (robust to missing metrics)
-    # --------------------------------------------------------
-    print("📐 Computing ideal scaling curves...")
+    print("📈 Generating time plot...")
 
-    r1 = next((r for r in results if r["cores"] == 1), None)
-
-    ideal_diis = ideal_soscf = ideal_geom = None
-
-    if r1 is None:
-        print("⚠️  No 1-core result found — ideal scaling curves disabled")
-    else:
-        if r1["diis"] is not None:
-            ideal_diis = [r1["diis"] / c for c in cores]
-        else:
-            print("⚠️  No DIIS data at 1 core — DIIS ideal curve skipped")
-
-        if r1["soscf"] is not None:
-            ideal_soscf = [r1["soscf"] / c for c in cores]
-        else:
-            print("⚠️  No SOSCF data at 1 core — SOSCF ideal curve skipped")
-
-        if r1["geom"] is not None:
-            ideal_geom = [r1["geom"] / c for c in cores]
-        else:
-            print("⚠️  No geometry data at 1 core — geometry ideal curve skipped")
-
-    # --------------------------------------------------------
-    # Plot
-    # --------------------------------------------------------
-    print("📈 Generating Plotly figure...")
-
-    fig = make_subplots(
-        rows=2,
-        cols=2,
-        shared_xaxes=True,
-        vertical_spacing=0.06,
+    fig_time = make_subplots(
+        rows=2, cols=2, shared_xaxes=True, vertical_spacing=0.06,
         subplot_titles=[
-            "CPU efficiency",
             "Mean DIIS iteration time",
             "Mean SOSCF iteration time",
             "Mean geometry iteration time",
+            "",
         ],
     )
 
-    # CPU efficiency
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["cpu_eff"] for r in results],
-            mode="lines+markers",
-            name="CPU efficiency (%)",
-        ),
-        row=1, col=1,
-    )
+    metrics = [("diis", 1, 1), ("soscf", 1, 2), ("geom", 2, 1)]
 
-    # DIIS
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["diis"] for r in results],
-            mode="lines+markers",
-            name="DIIS measured",
-        ),
-        row=1, col=2,
-    )
-    if ideal_diis:
-        fig.add_trace(
+    for key, r, c in metrics:
+        fig_time.add_trace(
             go.Scatter(
                 x=cores,
-                y=ideal_diis,
-                mode="lines",
-                line=dict(dash="dash"),
-                name="DIIS ideal scaling",
+                y=[r[key] for r in results],
+                mode="lines+markers",
+                name=f"{key.upper()} time",
             ),
-            row=1, col=2,
+            row=r, col=c,
         )
 
-    # SOSCF
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["soscf"] for r in results],
-            mode="lines+markers",
-            name="SOSCF measured",
-        ),
-        row=2, col=1,
-    )
-    if ideal_soscf:
-        fig.add_trace(
-            go.Scatter(
-                x=cores,
-                y=ideal_soscf,
-                mode="lines",
-                line=dict(dash="dash"),
-                name="SOSCF ideal scaling",
-            ),
-            row=2, col=1,
-        )
-
-    # Geometry
-    fig.add_trace(
-        go.Scatter(
-            x=cores,
-            y=[r["geom"] for r in results],
-            mode="lines+markers",
-            name="Geometry measured",
-        ),
-        row=2, col=2,
-    )
-    if ideal_geom:
-        fig.add_trace(
-            go.Scatter(
-                x=cores,
-                y=ideal_geom,
-                mode="lines",
-                line=dict(dash="dash"),
-                name="Geometry ideal scaling",
-            ),
-            row=2, col=2,
-        )
-
-    # Axes and layout
-    fig.update_xaxes(
-        title_text="Number of cores",
-        range=[0, max(cores)],
-        showline=True,
-        ticks="outside",
-        linecolor="black",
-    )
-
-    fig.update_yaxes(
-        rangemode="tozero",
-        showline=True,
-        ticks="outside",
-        linecolor="black",
-    )
-
-    fig.update_yaxes(title_text="CPU efficiency (%)", range=[0, 100], row=1, col=1)
-    fig.update_yaxes(title_text="Mean DIIS iteration time (s)", row=1, col=2)
-    fig.update_yaxes(title_text="Mean SOSCF iteration time (s)", row=2, col=1)
-    fig.update_yaxes(title_text="Mean geometry iteration time (s)", row=2, col=2)
-
-    fig.update_layout(
+    fig_time.update_layout(
         template="none",
         hovermode="x unified",
-        showlegend=True,
         margin=dict(l=80, r=40, t=90, b=80),
     )
 
-    # --------------------------------------------------------
-    # Responsive square HTML output
-    # --------------------------------------------------------
-    print("🖥️ Writing responsive HTML output...")
+    print("🖥️ Writing time plot HTML...")
+    html_time = pio.to_html(fig_time, full_html=True, include_plotlyjs="cdn")
+    with open("orca_benchmark_results_opt.html", "w") as f:
+        f.write(html_time)
 
-    post_script = """
-    function resizeSquare() {
-        var s = Math.min(window.innerWidth, window.innerHeight);
-        Plotly.relayout('{plot_id}', {width: s, height: s});
-    }
-    window.addEventListener('resize', resizeSquare);
-    resizeSquare();
-    """
+    print("📈 Computing speedup curves...")
 
-    html = pio.to_html(
-        fig,
-        include_plotlyjs="cdn",
-        full_html=True,
-        config={"responsive": True},
-        post_script=post_script,
+    r1 = next((r for r in results if r["cores"] == 1), None)
+    if r1 is None:
+        print("⚠️  No CPU=1 data found — speedup plot skipped")
+        return
+
+    fig_speedup = make_subplots(
+        rows=2, cols=2, shared_xaxes=True, vertical_spacing=0.06,
+        subplot_titles=[
+            "DIIS speedup",
+            "SOSCF speedup",
+            "Geometry speedup",
+            "",
+        ],
     )
 
-    with open("orca_benchmark_results_opt.html", "w") as f:
-        f.write(html)
+    for key, r, c in metrics:
+        if r1[key] is None:
+            print(f"⚠️  No {key.upper()} data at CPU=1 — skipping")
+            continue
+
+        speedup = [r1[key] / r[key] if r[key] else None for r in results]
+
+        fig_speedup.add_trace(
+            go.Scatter(
+                x=cores,
+                y=speedup,
+                mode="lines+markers",
+                name=f"{key.upper()} speedup",
+            ),
+            row=r, col=c,
+        )
+
+    fig_speedup.update_layout(
+        template="none",
+        hovermode="x unified",
+        margin=dict(l=80, r=40, t=90, b=80),
+    )
+
+    print("🖥️ Writing speedup plot HTML...")
+    html_speedup = pio.to_html(fig_speedup, full_html=True, include_plotlyjs="cdn")
+    with open("orca_benchmark_speedup_opt.html", "w") as f:
+        f.write(html_speedup)
 
     print("✅ Plot written to orca_benchmark_results_opt.html")
+    print("✅ Plot written to orca_benchmark_speedup_opt.html")
 
     if args.csv:
         print("📄 Writing CSV output...")
