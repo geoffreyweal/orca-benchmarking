@@ -1,7 +1,6 @@
 import os
 import re
 import subprocess
-import csv
 import sys
 import json
 import statistics
@@ -92,9 +91,9 @@ def main():
     if not os.path.isdir(bench_dir):
         sys.exit("❌ Run from the directory ABOVE orca_benchmarking/")
 
+    print("📊 Collecting benchmark results...")
     results = []
 
-    print("📊 Collecting benchmark results...")
     for fname in tqdm(sorted(os.listdir(bench_dir)), desc="Processing SLURM outputs"):
         m = SLURM_FILE_REGEX.match(fname)
         if not m:
@@ -125,12 +124,20 @@ def main():
 
     print("📐 Computing speedups...")
     r1 = next((r for r in results if r["cores"] == 1), None)
+
     speedup = {}
-    for k in ("diis", "soscf", "geom"):
-        if r1 and r1[k] is not None:
-            speedup[k] = [r1[k] / r[k] if r[k] else None for r in results]
+    if r1:
+        if r1["soscf"] is not None:
+            speedup["soscf"] = [r1["soscf"] / r["soscf"] if r["soscf"] else None for r in results]
         else:
-            speedup[k] = None
+            speedup["soscf"] = None
+
+        if r1["geom"] is not None:
+            speedup["geom"] = [r1["geom"] / r["geom"] if r["geom"] else None for r in results]
+        else:
+            speedup["geom"] = None
+    else:
+        speedup["soscf"] = speedup["geom"] = None
 
     print("📈 Building combined figure...")
 
@@ -143,7 +150,7 @@ def main():
             [{"type": "xy"}, {"type": "xy"}, {"type": "xy"}],
         ],
         subplot_titles=[
-            "CPU efficiency", "Memory usage", "",
+            "CPU efficiency", "Memory usage",
             "DIIS time", "SOSCF time", "Geometry time",
             "DIIS speedup", "SOSCF speedup", "Geometry speedup",
         ],
@@ -151,7 +158,7 @@ def main():
         horizontal_spacing=0.06,
     )
 
-    # --- Row 1
+    # ---------------- Row 1 ----------------
     fig.add_trace(
         go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
                    mode="lines+markers", name="CPU efficiency (%)"),
@@ -164,7 +171,7 @@ def main():
         row=1, col=2,
     )
 
-    # --- Row 2 (time)
+    # ---------------- Row 2 (time) ----------------
     fig.add_trace(go.Scatter(x=cores, y=[r["diis"] for r in results],
                              mode="lines+markers", name="DIIS time"), 2, 1)
     fig.add_trace(go.Scatter(x=cores, y=[r["soscf"] for r in results],
@@ -172,20 +179,18 @@ def main():
     fig.add_trace(go.Scatter(x=cores, y=[r["geom"] for r in results],
                              mode="lines+markers", name="Geometry time"), 2, 3)
 
-    # --- Row 3 (speedup)
-    if speedup["diis"]:
-        fig.add_trace(go.Scatter(x=cores, y=speedup["diis"],
-                                 mode="lines+markers", name="DIIS speedup"), 3, 1)
+    # ---------------- Row 3 (speedup) ----------------
+    # DIIS speedup intentionally omitted
+
     if speedup["soscf"]:
         fig.add_trace(go.Scatter(x=cores, y=speedup["soscf"],
                                  mode="lines+markers", name="SOSCF speedup"), 3, 2)
+
     if speedup["geom"]:
         fig.add_trace(go.Scatter(x=cores, y=speedup["geom"],
                                  mode="lines+markers", name="Geometry speedup"), 3, 3)
 
-    # ------------------------------------------------------------
-    # Global axis styling
-    # ------------------------------------------------------------
+    # ---------------- Axis styling ----------------
     fig.update_xaxes(
         title_text="Number of cores",
         range=[0, max(cores)],
@@ -211,9 +216,11 @@ def main():
 
     fig.update_yaxes(range=[0, 100], title_text="CPU efficiency (%)", row=1, col=1)
     fig.update_yaxes(title_text="Max RSS (MB)", row=1, col=2)
+
     fig.update_yaxes(title_text="Time (s)", row=2, col=1)
     fig.update_yaxes(title_text="Time (s)", row=2, col=2)
     fig.update_yaxes(title_text="Time (s)", row=2, col=3)
+
     fig.update_yaxes(title_text="Speedup", row=3, col=1)
     fig.update_yaxes(title_text="Speedup", row=3, col=2)
     fig.update_yaxes(title_text="Speedup", row=3, col=3)
