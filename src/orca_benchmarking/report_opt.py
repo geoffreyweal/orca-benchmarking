@@ -5,7 +5,6 @@ import csv
 import sys
 import json
 import statistics
-import argparse
 from tqdm import tqdm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -22,7 +21,9 @@ def parse_orca_output(path):
     in_diis = in_soscf = False
 
     iter_re = re.compile(r"^\s*\d+.*\s+([0-9]+(?:\.[0-9]+)?)\s*$")
-    geom_re = re.compile(r"Time for complete geometry iter\s*:\s*([0-9]+(?:\.[0-9]+)?)")
+    geom_re = re.compile(
+        r"Time for complete geometry iter\s*:\s*([0-9]+(?:\.[0-9]+)?)"
+    )
 
     with open(path) as f:
         for line in f:
@@ -60,7 +61,9 @@ def parse_orca_output(path):
 def run_sacct(jobid, taskid):
     result = subprocess.run(
         ["sacct", "--json", "-j", f"{jobid}_{taskid}"],
-        capture_output=True, text=True, check=True
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return json.loads(result.stdout)
 
@@ -71,20 +74,20 @@ def parse_sacct_data(data):
     max_mem_b = 0
 
     for step in job["steps"]:
-        tres = step["tres"]["requested"]["total"]
-        for t in tres:
+        for t in step["tres"]["requested"]["total"]:
             if t["type"] == "cpu":
                 cpu_msec += t["count"]
-            if t["type"] == "mem":
+            elif t["type"] == "mem":
                 max_mem_b = max(max_mem_b, t["count"])
 
-    return elapsed, cpu_msec / 1000.0, max_mem_b / 1024 / 1024
+    return elapsed, cpu_msec / 1000.0, max_mem_b / 1024.0 / 1024.0  # MB
 
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
 def main():
     print("🔍 ORCA optimisation benchmarking report")
+
     bench_dir = os.path.join(os.getcwd(), BENCH_DIR_NAME)
     if not os.path.isdir(bench_dir):
         sys.exit("❌ Run from the directory ABOVE orca_benchmarking/")
@@ -106,21 +109,22 @@ def main():
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
-        results.append(dict(
-            cores=cores,
-            cpu_eff=cpu_eff,
-            rss=rss,
-            diis=diis,
-            soscf=soscf,
-            geom=geom,
-        ))
+        results.append(
+            dict(
+                cores=cores,
+                cpu_eff=cpu_eff,
+                rss=rss,
+                diis=diis,
+                soscf=soscf,
+                geom=geom,
+            )
+        )
 
     results.sort(key=lambda r: r["cores"])
     cores = [r["cores"] for r in results]
 
     print("📐 Computing speedups...")
     r1 = next((r for r in results if r["cores"] == 1), None)
-
     speedup = {}
     for k in ("diis", "soscf", "geom"):
         if r1 and r1[k] is not None:
@@ -128,10 +132,11 @@ def main():
         else:
             speedup[k] = None
 
-    print("📈 Building figure...")
+    print("📈 Building combined figure...")
 
     fig = make_subplots(
-        rows=3, cols=3,
+        rows=3,
+        cols=3,
         specs=[
             [{"type": "xy"}, {"type": "xy"}, None],
             [{"type": "xy"}, {"type": "xy"}, {"type": "xy"}],
@@ -146,16 +151,20 @@ def main():
         horizontal_spacing=0.06,
     )
 
-    # Row 1
-    fig.add_trace(go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
-                             mode="lines+markers", name="CPU efficiency"),
-                  row=1, col=1)
+    # --- Row 1
+    fig.add_trace(
+        go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
+                   mode="lines+markers", name="CPU efficiency (%)"),
+        row=1, col=1,
+    )
 
-    fig.add_trace(go.Scatter(x=cores, y=[r["rss"] for r in results],
-                             mode="lines+markers", name="Max RSS (MB)"),
-                  row=1, col=2)
+    fig.add_trace(
+        go.Scatter(x=cores, y=[r["rss"] for r in results],
+                   mode="lines+markers", name="Max RSS (MB)"),
+        row=1, col=2,
+    )
 
-    # Row 2 – times
+    # --- Row 2 (time)
     fig.add_trace(go.Scatter(x=cores, y=[r["diis"] for r in results],
                              mode="lines+markers", name="DIIS time"), 2, 1)
     fig.add_trace(go.Scatter(x=cores, y=[r["soscf"] for r in results],
@@ -163,7 +172,7 @@ def main():
     fig.add_trace(go.Scatter(x=cores, y=[r["geom"] for r in results],
                              mode="lines+markers", name="Geometry time"), 2, 3)
 
-    # Row 3 – speedups
+    # --- Row 3 (speedup)
     if speedup["diis"]:
         fig.add_trace(go.Scatter(x=cores, y=speedup["diis"],
                                  mode="lines+markers", name="DIIS speedup"), 3, 1)
@@ -174,11 +183,46 @@ def main():
         fig.add_trace(go.Scatter(x=cores, y=speedup["geom"],
                                  mode="lines+markers", name="Geometry speedup"), 3, 3)
 
+    # ------------------------------------------------------------
+    # Global axis styling
+    # ------------------------------------------------------------
+    fig.update_xaxes(
+        title_text="Number of cores",
+        range=[0, max(cores)],
+        showline=True,
+        linecolor="black",
+        ticks="outside",
+        ticklen=6,
+        tickwidth=1,
+        tickcolor="black",
+        showticklabels=True,
+    )
+
+    fig.update_yaxes(
+        rangemode="tozero",
+        showline=True,
+        linecolor="black",
+        ticks="outside",
+        ticklen=6,
+        tickwidth=1,
+        tickcolor="black",
+        showticklabels=True,
+    )
+
+    fig.update_yaxes(range=[0, 100], title_text="CPU efficiency (%)", row=1, col=1)
+    fig.update_yaxes(title_text="Max RSS (MB)", row=1, col=2)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=1)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=2)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=3)
+    fig.update_yaxes(title_text="Speedup", row=3, col=1)
+    fig.update_yaxes(title_text="Speedup", row=3, col=2)
+    fig.update_yaxes(title_text="Speedup", row=3, col=3)
+
     fig.update_layout(
         template="none",
         hovermode="x unified",
         showlegend=False,
-        margin=dict(l=60, r=40, t=80, b=60),
+        margin=dict(l=70, r=40, t=90, b=70),
     )
 
     print("🖥️ Writing combined HTML output...")
@@ -203,4 +247,4 @@ def main():
     with open("orca_benchmark_results_opt.html", "w") as f:
         f.write(html)
 
-    print("✅ Plot written to orca_benchmark_results_opt.html") 
+    print("✅ Plot written to orca_benchmark_results_opt.html")
