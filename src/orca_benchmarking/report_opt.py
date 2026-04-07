@@ -182,13 +182,12 @@ def main():
     # ---------------- Row 3 (speedup) ----------------
     # DIIS speedup intentionally omitted
 
+    if speedup["diis"]:
+        fig.add_trace(go.Scatter(x=cores, y=speedup["diis"], mode="lines+markers", name="DIIS speedup"), 3, 2)
     if speedup["soscf"]:
-        fig.add_trace(go.Scatter(x=cores, y=speedup["soscf"],
-                                 mode="lines+markers", name="SOSCF speedup"), 3, 2)
-
+        fig.add_trace(go.Scatter(x=cores, y=speedup["soscf"], mode="lines+markers", name="SOSCF speedup"), 3, 2)
     if speedup["geom"]:
-        fig.add_trace(go.Scatter(x=cores, y=speedup["geom"],
-                                 mode="lines+markers", name="Geometry speedup"), 3, 3)
+        fig.add_trace(go.Scatter(x=cores, y=speedup["geom"],  mode="lines+markers", name="Geometry speedup"), 3, 3)
 
     # ---------------- Axis styling ----------------
     fig.update_xaxes(
