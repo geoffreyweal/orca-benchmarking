@@ -225,7 +225,7 @@ def main():
                 x=cores,
                 y=delta,
                 mode="markers",
-                marker=dict(size=1,opacity=1),
+                marker=dict(size=1,opacity=0),
                 name=f"Diff (ideal − actual)",
                 line=dict(dash="dot"),
             ), 3, col)
