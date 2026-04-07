@@ -127,17 +127,13 @@ def main():
 
     speedup = {}
     if r1:
-        if r1["soscf"] is not None:
-            speedup["soscf"] = [r1["soscf"] / r["soscf"] if r["soscf"] else None for r in results]
-        else:
-            speedup["soscf"] = None
-
-        if r1["geom"] is not None:
-            speedup["geom"] = [r1["geom"] / r["geom"] if r["geom"] else None for r in results]
-        else:
-            speedup["geom"] = None
+        for k in ("diis", "soscf", "geom"):
+            if r1[k] is not None:
+                speedup[k] = [r1[k] / r[k] if r[k] else None for r in results]
+            else:
+                speedup[k] = None
     else:
-        speedup["soscf"] = speedup["geom"] = None
+        speedup["diis"] = speedup["soscf"] = speedup["geom"] = None
 
     print("📈 Building combined figure...")
 
@@ -158,47 +154,38 @@ def main():
         horizontal_spacing=0.06,
     )
 
-    # ---------------- Row 1 ----------------
-    fig.add_trace(
-        go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
-                   mode="lines+markers", name="CPU efficiency (%)"),
-        row=1, col=1,
-    )
+    # Row 1
+    fig.add_trace(go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
+                             mode="lines+markers"), 1, 1)
+    fig.add_trace(go.Scatter(x=cores, y=[r["rss"] for r in results],
+                             mode="lines+markers"), 1, 2)
 
-    fig.add_trace(
-        go.Scatter(x=cores, y=[r["rss"] for r in results],
-                   mode="lines+markers", name="Max RSS (MB)"),
-        row=1, col=2,
-    )
-
-    # ---------------- Row 2 (time) ----------------
+    # Row 2 – time
     fig.add_trace(go.Scatter(x=cores, y=[r["diis"] for r in results],
-                             mode="lines+markers", name="DIIS time"), 2, 1)
+                             mode="lines+markers"), 2, 1)
     fig.add_trace(go.Scatter(x=cores, y=[r["soscf"] for r in results],
-                             mode="lines+markers", name="SOSCF time"), 2, 2)
+                             mode="lines+markers"), 2, 2)
     fig.add_trace(go.Scatter(x=cores, y=[r["geom"] for r in results],
-                             mode="lines+markers", name="Geometry time"), 2, 3)
+                             mode="lines+markers"), 2, 3)
 
-    # ---------------- Row 3 (speedup) ----------------
-    # DIIS speedup intentionally omitted
-
+    # Row 3 – speedup (ALL THREE)
     if speedup["diis"]:
-        fig.add_trace(go.Scatter(x=cores, y=speedup["diis"], mode="lines+markers", name="DIIS speedup"), 3, 2)
+        fig.add_trace(go.Scatter(x=cores, y=speedup["diis"],
+                                 mode="lines+markers"), 3, 1)
     if speedup["soscf"]:
-        fig.add_trace(go.Scatter(x=cores, y=speedup["soscf"], mode="lines+markers", name="SOSCF speedup"), 3, 2)
+        fig.add_trace(go.Scatter(x=cores, y=speedup["soscf"],
+                                 mode="lines+markers"), 3, 2)
     if speedup["geom"]:
-        fig.add_trace(go.Scatter(x=cores, y=speedup["geom"],  mode="lines+markers", name="Geometry speedup"), 3, 3)
+        fig.add_trace(go.Scatter(x=cores, y=speedup["geom"],
+                                 mode="lines+markers"), 3, 3)
 
-    # ---------------- Axis styling ----------------
+    # Axis styling
     fig.update_xaxes(
         title_text="Number of cores",
         range=[0, max(cores)],
         showline=True,
         linecolor="black",
         ticks="outside",
-        ticklen=6,
-        tickwidth=1,
-        tickcolor="black",
         showticklabels=True,
     )
 
@@ -207,9 +194,6 @@ def main():
         showline=True,
         linecolor="black",
         ticks="outside",
-        ticklen=6,
-        tickwidth=1,
-        tickcolor="black",
         showticklabels=True,
     )
 
