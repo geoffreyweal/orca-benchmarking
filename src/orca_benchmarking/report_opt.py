@@ -11,9 +11,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
 
-# ------------------------------------------------------------
-# Constants
-# ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
 
@@ -94,11 +91,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="ORCA optimisation benchmarking report"
     )
-    parser.add_argument(
-        "--csv",
-        action="store_true",
-        help="Write CSV output alongside HTML report",
-    )
+    parser.add_argument("--csv", action="store_true", help="Write CSV output")
     args = parser.parse_args()
 
     print("🔍 ORCA optimisation benchmarking report")
@@ -139,7 +132,6 @@ def main():
     cores = [r["cores"] for r in results]
 
     print("📐 Computing speedups...")
-
     r1 = next((r for r in results if r["cores"] == 1), None)
 
     for key in ("diis", "soscf", "geom"):
@@ -171,73 +163,80 @@ def main():
         horizontal_spacing=0.06,
     )
 
-    # Row 1
-    fig.add_trace(go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
-                             mode="lines+markers"), 1, 1)
-    fig.add_trace(go.Scatter(x=cores, y=[r["rss_mb"] for r in results],
-                             mode="lines+markers"), 1, 2)
+    # ---------------- Row 1 ----------------
+    fig.add_trace(go.Scatter(
+        x=cores,
+        y=[r["cpu_eff"] for r in results],
+        mode="lines+markers",
+        name="CPU efficiency (%)"
+    ), 1, 1)
 
-    # Row 2 – time
+    fig.add_trace(go.Scatter(
+        x=cores,
+        y=[r["rss_mb"] for r in results],
+        mode="lines+markers",
+        name="Max RSS (MB)"
+    ), 1, 2)
+
+    # ---------------- Row 2 (time) ----------------
     fig.add_trace(go.Scatter(x=cores, y=[r["diis_time"] for r in results],
-                             mode="lines+markers"), 2, 1)
+                             mode="lines+markers", name="DIIS time"), 2, 1)
     fig.add_trace(go.Scatter(x=cores, y=[r["soscf_time"] for r in results],
-                             mode="lines+markers"), 2, 2)
+                             mode="lines+markers", name="SOSCF time"), 2, 2)
     fig.add_trace(go.Scatter(x=cores, y=[r["geom_time"] for r in results],
-                             mode="lines+markers"), 2, 3)
+                             mode="lines+markers", name="Geometry time"), 2, 3)
 
-    # Row 3 – speedup + ideal y=x
+    # ---------------- Row 3 (speedup) ----------------
     for col, key in enumerate(("diis", "soscf", "geom"), start=1):
+        # Ideal line
         fig.add_trace(
             go.Scatter(
                 x=cores,
                 y=cores,
                 mode="lines",
                 line=dict(dash="dash", color="gray"),
+                name="Ideal speedup (y = cores)",
             ),
             3, col,
         )
 
         y = [r[f"{key}_speedup"] for r in results]
         if any(v is not None for v in y):
+            delta = [
+                (c - s) if s is not None else None
+                for c, s in zip(cores, y)
+            ]
+
             fig.add_trace(
                 go.Scatter(
                     x=cores,
                     y=y,
                     mode="lines+markers",
+                    name=f"{key.upper()} speedup",
+                    customdata=delta,
+                    hovertemplate=(
+                        "Cores: %{x}<br>"
+                        "Speedup: %{y:.3f}<br>"
+                        "Ideal − actual: %{customdata:.3f}<br>"
+                        "<extra></extra>"
+                    ),
                 ),
                 3, col,
             )
 
-    # Axes formatting
-    fig.update_xaxes(
-        title_text="Number of cores",
-        range=[0, max(cores)],
-        showline=True,
-        ticks="outside",
-    )
-    fig.update_yaxes(
-        rangemode="tozero",
-        showline=True,
-        ticks="outside",
-    )
-
+    # Axes and layout
+    fig.update_xaxes(title_text="Number of cores", range=[0, max(cores)], showline=True)
+    fig.update_yaxes(rangemode="tozero", showline=True)
     fig.update_yaxes(range=[0, 100], title_text="CPU efficiency (%)", row=1, col=1)
     fig.update_yaxes(title_text="Max RSS (MB)", row=1, col=2)
-
     fig.update_yaxes(title_text="Time (s)", row=2, col=1)
     fig.update_yaxes(title_text="Time (s)", row=2, col=2)
     fig.update_yaxes(title_text="Time (s)", row=2, col=3)
-
     fig.update_yaxes(title_text="Speedup", row=3, col=1)
     fig.update_yaxes(title_text="Speedup", row=3, col=2)
     fig.update_yaxes(title_text="Speedup", row=3, col=3)
 
-    fig.update_layout(
-        template="none",
-        hovermode="x unified",
-        showlegend=False,
-        margin=dict(l=70, r=40, t=90, b=70),
-    )
+    fig.update_layout(template="none", hovermode="x unified", showlegend=False)
 
     print("🖥️ Writing combined HTML output...")
 
@@ -250,13 +249,8 @@ def main():
     resizeSquare();
     """
 
-    html = pio.to_html(
-        fig,
-        full_html=True,
-        include_plotlyjs="cdn",
-        config={"responsive": True},
-        post_script=post_script,
-    )
+    html = pio.to_html(fig, include_plotlyjs="cdn", full_html=True,
+                       config={"responsive": True}, post_script=post_script)
 
     with open("orca_benchmark_results_opt.html", "w") as f:
         f.write(html)
