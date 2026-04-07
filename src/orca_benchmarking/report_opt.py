@@ -11,9 +11,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
 
-# ------------------------------------------------------------
-# Constants
-# ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
 
@@ -134,9 +131,23 @@ def main():
     results.sort(key=lambda r: r["cores"])
     cores = [r["cores"] for r in results]
 
-    print("📐 Computing speedups...")
+    # --------------------------------------------------------
+    # Ideal time curves (t1 / cores)
+    # --------------------------------------------------------
     r1 = next((r for r in results if r["cores"] == 1), None)
 
+    ideal_time = {"diis": None, "soscf": None, "geom": None}
+    if r1:
+        if r1["diis_time"] is not None:
+            ideal_time["diis"] = [r1["diis_time"] / c for c in cores]
+        if r1["soscf_time"] is not None:
+            ideal_time["soscf"] = [r1["soscf_time"] / c for c in cores]
+        if r1["geom_time"] is not None:
+            ideal_time["geom"] = [r1["geom_time"] / c for c in cores]
+
+    # --------------------------------------------------------
+    # Speedups
+    # --------------------------------------------------------
     for key in ("diis", "soscf", "geom"):
         tkey = f"{key}_time"
         skey = f"{key}_speedup"
@@ -167,39 +178,31 @@ def main():
     )
 
     # ---------------- Row 1 ----------------
-    fig.add_trace(go.Scatter(
-        x=cores,
-        y=[r["cpu_eff"] for r in results],
-        mode="lines+markers",
-        name="CPU efficiency (%)",
-    ), 1, 1)
+    fig.add_trace(go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
+                             mode="lines+markers", name="CPU efficiency (%)"), 1, 1)
+    fig.add_trace(go.Scatter(x=cores, y=[r["rss_mb"] for r in results],
+                             mode="lines+markers", name="Max RSS (MB)"), 1, 2)
 
-    fig.add_trace(go.Scatter(
-        x=cores,
-        y=[r["rss_mb"] for r in results],
-        mode="lines+markers",
-        name="Max RSS (MB)",
-    ), 1, 2)
-
-    # ---------------- Row 2 ----------------
-    fig.add_trace(go.Scatter(
-        x=cores, y=[r["diis_time"] for r in results],
-        mode="lines+markers", name="DIIS time"
-    ), 2, 1)
-
-    fig.add_trace(go.Scatter(
-        x=cores, y=[r["soscf_time"] for r in results],
-        mode="lines+markers", name="SOSCF time"
-    ), 2, 2)
-
-    fig.add_trace(go.Scatter(
-        x=cores, y=[r["geom_time"] for r in results],
-        mode="lines+markers", name="Geometry time"
-    ), 2, 3)
-
-    # ---------------- Row 3 ----------------
+    # ---------------- Row 2 (time + ideal) ----------------
     for col, key in enumerate(("diis", "soscf", "geom"), start=1):
-        # Ideal reference
+        fig.add_trace(go.Scatter(
+            x=cores,
+            y=[r[f"{key}_time"] for r in results],
+            mode="lines+markers",
+            name=f"{key.upper()} time",
+        ), 2, col)
+
+        if ideal_time[key]:
+            fig.add_trace(go.Scatter(
+                x=cores,
+                y=ideal_time[key],
+                mode="lines",
+                line=dict(dash="dash", color="gray"),
+                name=f"{key.upper()} ideal time (t₁ / cores)",
+            ), 2, col)
+
+    # ---------------- Row 3 (speedup) ----------------
+    for col, key in enumerate(("diis", "soscf", "geom"), start=1):
         fig.add_trace(go.Scatter(
             x=cores,
             y=cores,
@@ -208,45 +211,14 @@ def main():
             name="Ideal speedup (y = x)",
         ), 3, col)
 
-        y = [r[f"{key}_speedup"] for r in results]
-        if any(v is not None for v in y):
-            delta = [(c - s) if s is not None else None for c, s in zip(cores, y)]
+        fig.add_trace(go.Scatter(
+            x=cores,
+            y=[r[f"{key}_speedup"] for r in results],
+            mode="lines+markers",
+            name=f"{key.upper()} speedup",
+        ), 3, col)
 
-            # Actual speedup
-            fig.add_trace(go.Scatter(
-                x=cores,
-                y=y,
-                mode="lines+markers",
-                name=f"Actual speedup",
-            ), 3, col)
-
-            # Hidden (ideal − actual)
-            fig.add_trace(go.Scatter(
-                x=cores,
-                y=delta,
-                mode="markers",
-                marker=dict(size=1,opacity=0),
-                name=f"Diff (ideal − actual)",
-                line=dict(dash="dot"),
-            ), 3, col)
-
-    # ---------------- Axes & layout ----------------
-    fig.update_xaxes(title_text="Number of cores", range=[0, max(cores)], showline=True)
-    fig.update_yaxes(rangemode="tozero", showline=True)
-    fig.update_yaxes(range=[0, 100], title_text="CPU efficiency (%)", row=1, col=1)
-    fig.update_yaxes(title_text="Max RSS (MB)", row=1, col=2)
-    fig.update_yaxes(title_text="Time (s)", row=2, col=1)
-    fig.update_yaxes(title_text="Time (s)", row=2, col=2)
-    fig.update_yaxes(title_text="Time (s)", row=2, col=3)
-    fig.update_yaxes(title_text="Speedup", row=3, col=1)
-    fig.update_yaxes(title_text="Speedup", row=3, col=2)
-    fig.update_yaxes(title_text="Speedup", row=3, col=3)
-
-    fig.update_layout(
-        template="none",
-        hovermode="x unified",
-        showlegend=False,
-    )
+    fig.update_layout(template="none", hovermode="x unified", showlegend=False)
 
     print("🖥️ Writing combined HTML output...")
 
