@@ -224,9 +224,9 @@ def main():
             fig.add_trace(go.Scatter(
                 x=cores,
                 y=delta,
-                mode="lines+markers",
+                mode="markers",
+                marker=dict(size=1,opacity=1),
                 name=f"Diff (ideal − actual)",
-                visible="legendonly",
                 line=dict(dash="dot"),
             ), 3, col)
 
