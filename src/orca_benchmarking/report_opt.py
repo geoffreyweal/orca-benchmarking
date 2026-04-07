@@ -128,13 +128,11 @@ def main():
     if not os.path.isdir(bench_dir):
         sys.exit("❌ Run from the directory ABOVE orca_benchmarking/")
 
-    print(f"✅ Benchmark directory found: {bench_dir}")
-    print("\n📊 Scanning benchmark results...")
+    print("✅ Benchmark directory found")
+    print("\n📊 Collecting benchmark results...")
 
     results = []
-    files = sorted(os.listdir(bench_dir))
-
-    for fname in tqdm(files, desc="Processing SLURM outputs", unit="job"):
+    for fname in tqdm(sorted(os.listdir(bench_dir)), desc="Processing SLURM outputs", unit="job"):
         m = SLURM_FILE_REGEX.match(fname)
         if not m:
             continue
@@ -146,7 +144,6 @@ def main():
 
         diis_m, _, soscf_m, _, geom_m, _ = parse_orca_output(orca_out)
         elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
-
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append({
@@ -158,13 +155,24 @@ def main():
         })
 
     if not results:
-        sys.exit("\n❌ No benchmark data found.")
-
-    print("✅ Benchmark parsing complete.")
-    print("📈 Generating Plotly figure...")
+        sys.exit("❌ No benchmark data found")
 
     results.sort(key=lambda r: r["cores"])
     cores = [r["cores"] for r in results]
+
+    print("📐 Computing ideal scaling curves...")
+
+    ideal_available = any(r["cores"] == 1 for r in results)
+    if ideal_available:
+        r1 = next(r for r in results if r["cores"] == 1)
+        ideal_diis = [r1["diis"] / c for c in cores]
+        ideal_soscf = [r1["soscf"] / c for c in cores]
+        ideal_geom = [r1["geom"] / c for c in cores]
+    else:
+        print("⚠️  No 1-core result found — ideal scaling curves disabled")
+        ideal_diis = ideal_soscf = ideal_geom = None
+
+    print("📈 Generating figure...")
 
     fig = make_subplots(
         rows=2,
@@ -179,6 +187,7 @@ def main():
         ],
     )
 
+    # CPU efficiency
     fig.add_trace(
         go.Scatter(
             x=cores,
@@ -189,61 +198,89 @@ def main():
         row=1, col=1
     )
 
+    # DIIS
     fig.add_trace(
         go.Scatter(
             x=cores,
             y=[r["diis"] for r in results],
             mode="lines+markers",
-            name="DIIS mean time (s)",
+            name="DIIS measured",
         ),
         row=1, col=2
     )
 
+    if ideal_diis:
+        fig.add_trace(
+            go.Scatter(
+                x=cores,
+                y=ideal_diis,
+                mode="lines",
+                line=dict(dash="dash"),
+                name="DIIS ideal scaling",
+            ),
+            row=1, col=2
+        )
+
+    # SOSCF
     fig.add_trace(
         go.Scatter(
             x=cores,
             y=[r["soscf"] for r in results],
             mode="lines+markers",
-            name="SOSCF mean time (s)",
+            name="SOSCF measured",
         ),
         row=2, col=1
     )
 
+    if ideal_soscf:
+        fig.add_trace(
+            go.Scatter(
+                x=cores,
+                y=ideal_soscf,
+                mode="lines",
+                line=dict(dash="dash"),
+                name="SOSCF ideal scaling",
+            ),
+            row=2, col=1
+        )
+
+    # Geometry
     fig.add_trace(
         go.Scatter(
             x=cores,
             y=[r["geom"] for r in results],
             mode="lines+markers",
-            name="Geometry iteration mean (s)",
+            name="Geometry measured",
         ),
         row=2, col=2
     )
 
-    print("🎨 Styling axes and layout...")
+    if ideal_geom:
+        fig.add_trace(
+            go.Scatter(
+                x=cores,
+                y=ideal_geom,
+                mode="lines",
+                line=dict(dash="dash"),
+                name="Geometry ideal scaling",
+            ),
+            row=2, col=2
+        )
 
+    # Axis styling and limits
     fig.update_xaxes(
         title_text="Number of cores",
         range=[0, max(cores)],
         showline=True,
-        linecolor="black",
-        linewidth=1,
         ticks="outside",
-        ticklen=6,
-        tickwidth=1,
-        tickcolor="black",
-        showticklabels=True,
+        linecolor="black",
     )
 
     fig.update_yaxes(
-        showline=True,
-        linecolor="black",
-        linewidth=1,
-        ticks="outside",
-        ticklen=6,
-        tickwidth=1,
-        tickcolor="black",
-        showticklabels=True,
         rangemode="tozero",
+        showline=True,
+        ticks="outside",
+        linecolor="black",
     )
 
     fig.update_yaxes(title_text="CPU efficiency (%)", range=[0, 100], row=1, col=1)
@@ -258,7 +295,7 @@ def main():
         margin=dict(l=80, r=40, t=90, b=80),
     )
 
-    print("🖥️ Writing responsive square HTML output...")
+    print("🖥️ Writing responsive HTML output...")
 
     post_script = """
     function resizeSquare() {
@@ -291,3 +328,4 @@ def main():
         print("✅ CSV written to orca_benchmark_results_opt.csv")
 
     print("🎉 Done.")
+
