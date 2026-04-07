@@ -196,3 +196,164 @@ def main():
             print("⚠️  No SOSCF data at 1 core — SOSCF ideal curve skipped")
 
         if r1["geom"] is not None:
+            ideal_geom = [r1["geom"] / c for c in cores]
+        else:
+            print("⚠️  No geometry data at 1 core — geometry ideal curve skipped")
+
+    # --------------------------------------------------------
+    # Plot
+    # --------------------------------------------------------
+    print("📈 Generating Plotly figure...")
+
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=[
+            "CPU efficiency",
+            "Mean DIIS iteration time",
+            "Mean SOSCF iteration time",
+            "Mean geometry iteration time",
+        ],
+    )
+
+    # CPU efficiency
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["cpu_eff"] for r in results],
+            mode="lines+markers",
+            name="CPU efficiency (%)",
+        ),
+        row=1, col=1,
+    )
+
+    # DIIS
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["diis"] for r in results],
+            mode="lines+markers",
+            name="DIIS measured",
+        ),
+        row=1, col=2,
+    )
+    if ideal_diis:
+        fig.add_trace(
+            go.Scatter(
+                x=cores,
+                y=ideal_diis,
+                mode="lines",
+                line=dict(dash="dash"),
+                name="DIIS ideal scaling",
+            ),
+            row=1, col=2,
+        )
+
+    # SOSCF
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["soscf"] for r in results],
+            mode="lines+markers",
+            name="SOSCF measured",
+        ),
+        row=2, col=1,
+    )
+    if ideal_soscf:
+        fig.add_trace(
+            go.Scatter(
+                x=cores,
+                y=ideal_soscf,
+                mode="lines",
+                line=dict(dash="dash"),
+                name="SOSCF ideal scaling",
+            ),
+            row=2, col=1,
+        )
+
+    # Geometry
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["geom"] for r in results],
+            mode="lines+markers",
+            name="Geometry measured",
+        ),
+        row=2, col=2,
+    )
+    if ideal_geom:
+        fig.add_trace(
+            go.Scatter(
+                x=cores,
+                y=ideal_geom,
+                mode="lines",
+                line=dict(dash="dash"),
+                name="Geometry ideal scaling",
+            ),
+            row=2, col=2,
+        )
+
+    # Axes and layout
+    fig.update_xaxes(
+        title_text="Number of cores",
+        range=[0, max(cores)],
+        showline=True,
+        ticks="outside",
+        linecolor="black",
+    )
+
+    fig.update_yaxes(
+        rangemode="tozero",
+        showline=True,
+        ticks="outside",
+        linecolor="black",
+    )
+
+    fig.update_yaxes(title_text="CPU efficiency (%)", range=[0, 100], row=1, col=1)
+    fig.update_yaxes(title_text="Mean DIIS iteration time (s)", row=1, col=2)
+    fig.update_yaxes(title_text="Mean SOSCF iteration time (s)", row=2, col=1)
+    fig.update_yaxes(title_text="Mean geometry iteration time (s)", row=2, col=2)
+
+    fig.update_layout(
+        template="none",
+        hovermode="x unified",
+        showlegend=True,
+        margin=dict(l=80, r=40, t=90, b=80),
+    )
+
+    # --------------------------------------------------------
+    # Responsive square HTML output
+    # --------------------------------------------------------
+    print("🖥️ Writing responsive HTML output...")
+
+    post_script = """
+    function resizeSquare() {
+        var s = Math.min(window.innerWidth, window.innerHeight);
+        Plotly.relayout('{plot_id}', {width: s, height: s});
+    }
+    window.addEventListener('resize', resizeSquare);
+    resizeSquare();
+    """
+
+    html = pio.to_html(
+        fig,
+        include_plotlyjs="cdn",
+        full_html=True,
+        config={"responsive": True},
+        post_script=post_script,
+    )
+
+    with open("orca_benchmark_results_opt.html", "w") as f:
+        f.write(html)
+
+    print("✅ Plot written to orca_benchmark_results_opt.html")
+
+    if args.csv:
+        print("📄 Writing CSV output...")
+        with open("orca_benchmark_results_opt.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=results[0].keys())
+            w.writeheader()
+            w.writerows(results)
+        print("✅ CSV written to orca_benchmark_results_opt.csv")
