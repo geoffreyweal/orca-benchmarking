@@ -9,6 +9,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.io as pio
 
+# ------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------
 BENCH_DIR_NAME = "orca_benchmarking"
 SLURM_FILE_REGEX = re.compile(r"slurm-(\d+)_(\d+)\.out")
 
@@ -29,12 +32,15 @@ def parse_orca_output(path):
             if not line.strip():
                 in_diis = in_soscf = False
                 continue
+
             if "D-I-I-S" in line:
                 in_diis, in_soscf = True, False
                 continue
+
             if "S-O-S-C-F" in line:
                 in_diis, in_soscf = False, True
                 continue
+
             if line.startswith("---"):
                 continue
 
@@ -69,6 +75,7 @@ def run_sacct(jobid, taskid):
 def parse_sacct_data(data):
     job = data["jobs"][0]
     elapsed = float(job["time"]["elapsed"])
+
     cpu_msec = 0
     max_mem_b = 0
 
@@ -122,19 +129,41 @@ def main():
     results.sort(key=lambda r: r["cores"])
     cores = [r["cores"] for r in results]
 
+    # --------------------------------------------------------
+    # Speedup computation (always defined, may be None)
+    # --------------------------------------------------------
     print("📐 Computing speedups...")
+
     r1 = next((r for r in results if r["cores"] == 1), None)
 
-    speedup = {}
-    if r1:
-        for k in ("diis", "soscf", "geom"):
-            if r1[k] is not None:
-                speedup[k] = [r1[k] / r[k] if r[k] else None for r in results]
-            else:
-                speedup[k] = None
-    else:
-        speedup["diis"] = speedup["soscf"] = speedup["geom"] = None
+    speedup = {
+        "diis": None,
+        "soscf": None,
+        "geom": None,
+    }
 
+    if r1:
+        if r1["diis"] is not None:
+            speedup["diis"] = [
+                r1["diis"] / r["diis"] if r["diis"] else None
+                for r in results
+            ]
+
+        if r1["soscf"] is not None:
+            speedup["soscf"] = [
+                r1["soscf"] / r["soscf"] if r["soscf"] else None
+                for r in results
+            ]
+
+        if r1["geom"] is not None:
+            speedup["geom"] = [
+                r1["geom"] / r["geom"] if r["geom"] else None
+                for r in results
+            ]
+
+    # --------------------------------------------------------
+    # Build combined figure
+    # --------------------------------------------------------
     print("📈 Building combined figure...")
 
     fig = make_subplots(
@@ -154,13 +183,28 @@ def main():
         horizontal_spacing=0.06,
     )
 
-    # Row 1
-    fig.add_trace(go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
-                             mode="lines+markers"), 1, 1)
-    fig.add_trace(go.Scatter(x=cores, y=[r["rss"] for r in results],
-                             mode="lines+markers"), 1, 2)
+    # ---------------- Row 1 ----------------
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["cpu_eff"] for r in results],
+            mode="lines+markers",
+        ),
+        row=1,
+        col=1,
+    )
 
-    # Row 2 – time
+    fig.add_trace(
+        go.Scatter(
+            x=cores,
+            y=[r["rss"] for r in results],
+            mode="lines+markers",
+        ),
+        row=1,
+        col=2,
+    )
+
+    # ---------------- Row 2 (time) ----------------
     fig.add_trace(go.Scatter(x=cores, y=[r["diis"] for r in results],
                              mode="lines+markers"), 2, 1)
     fig.add_trace(go.Scatter(x=cores, y=[r["soscf"] for r in results],
@@ -168,18 +212,20 @@ def main():
     fig.add_trace(go.Scatter(x=cores, y=[r["geom"] for r in results],
                              mode="lines+markers"), 2, 3)
 
-    # Row 3 – speedup (ALL THREE)
-    if speedup["diis"]:
+    # ---------------- Row 3 (speedup) ----------------
+    if speedup["diis"] is not None:
         fig.add_trace(go.Scatter(x=cores, y=speedup["diis"],
                                  mode="lines+markers"), 3, 1)
-    if speedup["soscf"]:
+
+    if speedup["soscf"] is not None:
         fig.add_trace(go.Scatter(x=cores, y=speedup["soscf"],
                                  mode="lines+markers"), 3, 2)
-    if speedup["geom"]:
+
+    if speedup["geom"] is not None:
         fig.add_trace(go.Scatter(x=cores, y=speedup["geom"],
                                  mode="lines+markers"), 3, 3)
 
-    # Axis styling
+    # ---------------- Axis styling ----------------
     fig.update_xaxes(
         title_text="Number of cores",
         range=[0, max(cores)],
