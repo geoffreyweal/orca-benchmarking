@@ -217,7 +217,7 @@ def main():
                 x=cores,
                 y=y,
                 mode="lines+markers",
-                name=f"{key.upper()} speedup",
+                name=f"Actual speedup",
             ), 3, col)
 
             # Hidden (ideal − actual)
@@ -225,7 +225,8 @@ def main():
                 x=cores,
                 y=delta,
                 mode="lines+markers",
-                name=f"{key.upper()} (ideal − actual)",
+                name=f"Diff (ideal − actual)",
+                visible="legendonly",
                 line=dict(dash="dot"),
             ), 3, col)
 
