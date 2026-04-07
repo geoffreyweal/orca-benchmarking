@@ -215,8 +215,7 @@ def main():
                     name=f"{key.upper()} speedup",
                     customdata=delta,
                     hovertemplate=(
-                        "Cores: %{x}<br>"
-                        "Speedup: %{y:.3f}<br>"
+                        "Actual Speedup: %{y:.3f}<br>"
                         "Ideal − actual: %{customdata:.3f}<br>"
                         "<extra></extra>"
                     ),
