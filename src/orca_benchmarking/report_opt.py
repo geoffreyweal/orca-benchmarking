@@ -199,7 +199,7 @@ def main():
 
     # ---------------- Row 3 ----------------
     for col, key in enumerate(("diis", "soscf", "geom"), start=1):
-        # Ideal speedup reference
+        # Ideal reference
         fig.add_trace(go.Scatter(
             x=cores,
             y=cores,
@@ -218,21 +218,14 @@ def main():
                 y=y,
                 mode="lines+markers",
                 name=f"{key.upper()} speedup",
-                customdata=delta,
-                hovertemplate=(
-                    "Actual speedup: %{y:.3f}<br>"
-                    "Ideal − actual: %{customdata:.3f}<br>"
-                    "<extra></extra>"
-                ),
             ), 3, col)
 
-            # Hidden (ideal − actual) trace
+            # Hidden (ideal − actual)
             fig.add_trace(go.Scatter(
                 x=cores,
                 y=delta,
                 mode="lines+markers",
                 name=f"{key.upper()} (ideal − actual)",
-                visible="legendonly",
                 line=dict(dash="dot"),
             ), 3, col)
 
@@ -266,8 +259,11 @@ def main():
     """
 
     html = pio.to_html(
-        fig, include_plotlyjs="cdn", full_html=True,
-        config={"responsive": True}, post_script=post_script
+        fig,
+        include_plotlyjs="cdn",
+        full_html=True,
+        config={"responsive": True},
+        post_script=post_script,
     )
 
     with open("orca_benchmark_results_opt.html", "w") as f:
@@ -282,3 +278,4 @@ def main():
         print("✅ CSV written to orca_benchmark_results_opt.csv")
 
     print("✅ Plot written to orca_benchmark_results_opt.html")
+``
