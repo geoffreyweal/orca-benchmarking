@@ -82,7 +82,8 @@ def parse_sacct_data(data):
             elif t["type"] == "mem":
                 max_mem_b = max(max_mem_b, t["count"])
 
-    return elapsed, cpu_msec / 1000.0, max_mem_b / 1024.0 / 1024.0  # MB
+    max_mem_gb = max_mem_b / 1024.0 / 1024.0 / 1024.0
+    return elapsed, cpu_msec / 1000.0, max_mem_gb
 
 # ------------------------------------------------------------
 # Main
@@ -114,14 +115,14 @@ def main():
             continue
 
         diis, soscf, geom = parse_orca_output(orca_out)
-        elapsed, cpu, rss = parse_sacct_data(run_sacct(jobid, cores))
+        elapsed, cpu, rss_gb = parse_sacct_data(run_sacct(jobid, cores))
         cpu_eff = (cpu / (elapsed * cores)) * 100.0
 
         results.append(
             dict(
                 cores=cores,
                 cpu_eff=cpu_eff,
-                rss_mb=rss,
+                rss_gb=rss_gb,
                 diis_time=diis,
                 soscf_time=soscf,
                 geom_time=geom,
@@ -130,9 +131,10 @@ def main():
 
     results.sort(key=lambda r: r["cores"])
     cores = [r["cores"] for r in results]
+    max_cores = max(cores)
 
     # --------------------------------------------------------
-    # Ideal time curves (t1 / cores)
+    # Ideal time curves
     # --------------------------------------------------------
     r1 = next((r for r in results if r["cores"] == 1), None)
 
@@ -180,8 +182,8 @@ def main():
     # ---------------- Row 1 ----------------
     fig.add_trace(go.Scatter(x=cores, y=[r["cpu_eff"] for r in results],
                              mode="lines+markers", name="CPU efficiency (%)"), 1, 1)
-    fig.add_trace(go.Scatter(x=cores, y=[r["rss_mb"] for r in results],
-                             mode="lines+markers", name="Max RSS (MB)"), 1, 2)
+    fig.add_trace(go.Scatter(x=cores, y=[r["rss_gb"] for r in results],
+                             mode="lines+markers", name="Max RSS (GB)"), 1, 2)
 
     # ---------------- Row 2 (time + ideal) ----------------
     for col, key in enumerate(("diis", "soscf", "geom"), start=1):
@@ -192,7 +194,7 @@ def main():
             name=f"{key.upper()} time",
         ), 2, col)
 
-        if ideal_time[key]:
+        if ideal_time[key] is not None:
             fig.add_trace(go.Scatter(
                 x=cores,
                 y=ideal_time[key],
@@ -218,6 +220,31 @@ def main():
             name=f"{key.upper()} speedup",
         ), 3, col)
 
+    # ---------------- Axes (EXPLICIT LIMITS) ----------------
+    fig.update_xaxes(
+        title_text="Number of cores",
+        range=[0, max_cores],
+        showline=True,
+        ticks="outside",
+        showticklabels=True,
+    )
+
+    fig.update_yaxes(
+        range=[0, None],  # lower bound 0 for ALL plots
+        showline=True,
+        ticks="outside",
+        showticklabels=True,
+    )
+
+    fig.update_yaxes(range=[0, 100], title_text="CPU efficiency (%)", row=1, col=1)
+    fig.update_yaxes(title_text="Max RSS (GB)", row=1, col=2)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=1)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=2)
+    fig.update_yaxes(title_text="Time (s)", row=2, col=3)
+    fig.update_yaxes(title_text="Speedup", row=3, col=1)
+    fig.update_yaxes(title_text="Speedup", row=3, col=2)
+    fig.update_yaxes(title_text="Speedup", row=3, col=3)
+
     fig.update_layout(template="none", hovermode="x unified", showlegend=False)
 
     print("🖥️ Writing combined HTML output...")
@@ -232,11 +259,8 @@ def main():
     """
 
     html = pio.to_html(
-        fig,
-        include_plotlyjs="cdn",
-        full_html=True,
-        config={"responsive": True},
-        post_script=post_script,
+        fig, include_plotlyjs="cdn", full_html=True,
+        config={"responsive": True}, post_script=post_script
     )
 
     with open("orca_benchmark_results_opt.html", "w") as f:
